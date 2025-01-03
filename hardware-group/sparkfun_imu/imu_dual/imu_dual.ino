@@ -80,7 +80,30 @@ void setup()
 
 void loop()
 {
+  int delay_time;
+  
+  for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
+  {
+    myMux.setPort(x); // Tell Mux to connect to this port, and this port only
 
+    if (myICM[x]->dataReady())
+    {
+      myICM[x]->getAGMT();
+      SERIAL_PORT.print("IMU ");
+      SERIAL_PORT.print(x);
+      SERIAL_PORT.println(" Data:");
+      printScaledAGMT(myICM[x]);
+      delay_time = 500;
+    }
+    else
+    {
+      SERIAL_PORT.print("IMU ");
+      SERIAL_PORT.print(x);
+      SERIAL_PORT.println(": Waiting for data");
+      delay_time = 500;
+    }
+  }
+  delay(delay_time);
 }
 // void loop()
 // {
