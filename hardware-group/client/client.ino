@@ -178,35 +178,3 @@ void loop()
 
   delay(delay_time);
 }
-
-
-// void loop()
-// {
-//   String payload = "{ \"imu_data\": [";
-//   int delay_time = 1 / SAMPLE_RATE * 1000;
-
-//   bool allDataReady = true;  // indicate if all data ready
-
-//   for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
-//   {
-//     myMux.setPort(x); // Tell Mux to connect to this port, and this port only
-
-//     if (myICM[x]->dataReady())
-//     {
-//       myICM[x]->getAGMT();
-//       SERIAL_PORT.print("IMU ");
-//       SERIAL_PORT.print(x);
-//       SERIAL_PORT.println(" Data:");
-//       printScaledAGMT(myICM[x]);
-//       delay_time = 1 / SAMPLE_RATE * 1000;
-//     }
-//     else
-//     {
-//       SERIAL_PORT.print("IMU ");
-//       SERIAL_PORT.print(x);
-//       SERIAL_PORT.println(": Waiting for data");
-//       delay_time = 5000;
-//     }
-//   }
-//   delay(delay_time);
-// }
