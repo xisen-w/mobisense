@@ -30,6 +30,9 @@ def init_csv():
                     rows.append(imu + "_gyro_x")
                     rows.append(imu + "_gyro_y")
                     rows.append(imu + "_gyro_z")
+                    rows.append(imu + "_roll")
+                    rows.append(imu + "_pitch")
+                    rows.append(imu + "_yaw")
                     rows.append(imu + "_timestamp")
                 writer.writerow(rows)  # Add headers
 
@@ -59,6 +62,9 @@ def receive_data():
                     rows.append(imu.get('gyro').get('x', None))
                     rows.append(imu.get('gyro').get('y', None))
                     rows.append(imu.get('gyro').get('z', None))
+                    rows.append(imu.get('roll'))
+                    rows.append(imu.get('pitch'))
+                    rows.append(imu.get('yaw'))
                     rows.append(timestamp)
                 writer.writerow(rows)
 
