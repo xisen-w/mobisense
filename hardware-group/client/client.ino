@@ -70,10 +70,36 @@ void setup()
     {
       SERIAL_PORT.print("IMU ");
       SERIAL_PORT.print(x);
-      SERIAL_PORT.println(" successfully initialised.");      
+      SERIAL_PORT.println(" successfully initialised."); 
+
+    // Initialise DMP
+    bool success = true; // Use success to show if the DMP configuration was successful
+    success &= (myICM[x]->initializeDMP() == ICM_20948_Stat_Ok); 
+    success &= (myICM[x]->enableDMPSensor(INV_ICM20948_SENSOR_GAME_ROTATION_VECTOR) == ICM_20948_Stat_Ok); 
+    success &= (myICM[x]->setDMPODRrate(DMP_ODR_Reg_Quat6, 0) == ICM_20948_Stat_Ok); 
+
+    // Enable the FIFO
+    success &= (myICM[x]->enableFIFO() == ICM_20948_Stat_Ok);
+
+    // Enable the DMP
+    success &= (myICM[x]->enableDMP() == ICM_20948_Stat_Ok);
+
+    // Reset DMP
+    success &= (myICM[x]->resetDMP() == ICM_20948_Stat_Ok);
+
+    // Reset FIFO
+    success &= (myICM[x]->resetFIFO() == ICM_20948_Stat_Ok);  
+
+    if (success)
+    {
+      SERIAL_PORT.println(F("DMP enabled!"));
+    } else {
+      SERIAL_PORT.println(F("Enable DMP failed!"));
+      SERIAL_PORT.println(F("Please check that you have uncommented line 29 (#define ICM_20948_USE_DMP) in ICM_20948_C.h..."));
+      while (1)
+        ;
     }
   }
-
   if (initSuccess == false)
   {
     SERIAL_PORT.print("Error in IMU initialisation. Freezing...");
@@ -98,6 +124,7 @@ void setup()
     SERIAL_PORT.println("}");
   }
   SERIAL_PORT.println("Connected to Wi-Fi");
+  }
 }
 
 void loop()
@@ -112,9 +139,46 @@ void loop()
   {
     myMux.setPort(x); // Tell MUX to connect to this port, and this port only
 
-    if (myICM[x]->dataReady())
+    if (myICM[x]->dataReady() && (myICM[x]->status == ICM_20948_Stat_FIFOMoreDataAvail))
     {
       myICM[x]->getAGMT(); // Retrieve data for this IMU
+
+      // DMP
+      icm_20948_DMP_data_t data;
+      myICM[x]->readDMPdataFromFIFO(&data);
+
+      double roll = 0.0, pitch = 0.0, yaw = 0.0; // Default values
+
+      if ((data.header & DMP_header_bitmap_Quat6) > 0) // We have asked for GRV data so we should receive Quat6
+      {
+          // Scale to +/- 1
+          double q1 = ((double)data.Quat6.Data.Q1) / 1073741824.0; // Convert to double. Divide by 2^30
+          double q2 = ((double)data.Quat6.Data.Q2) / 1073741824.0; // Convert to double. Divide by 2^30
+          double q3 = ((double)data.Quat6.Data.Q3) / 1073741824.0; // Convert to double. Divide by 2^30
+
+          double q0 = sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)));
+
+          double qw = q0; 
+          double qx = q2;
+          double qy = q1;
+          double qz = -q3;
+
+          // roll (x-axis rotation)
+          double t0 = +2.0 * (qw * qx + qy * qz);
+          double t1 = +1.0 - 2.0 * (qx * qx + qy * qy);
+          roll = atan2(t0, t1) * 180.0 / PI;
+
+          // pitch (y-axis rotation)
+          double t2 = +2.0 * (qw * qy - qx * qz);
+          t2 = t2 > 1.0 ? 1.0 : t2;
+          t2 = t2 < -1.0 ? -1.0 : t2;
+          pitch = asin(t2) * 180.0 / PI;
+
+          // yaw (z-axis rotation)
+          double t3 = +2.0 * (qw * qz + qx * qy);
+          double t4 = +1.0 - 2.0 * (qy * qy + qz * qz);
+          yaw = atan2(t3, t4) * 180.0 / PI;
+      }
 
       // Append this IMU's data to the JSON payload
       payload += "{";
@@ -128,6 +192,11 @@ void loop()
       payload += "\"x\": " + String(myICM[x]->gyrX(), 2) + ",";
       payload += "\"y\": " + String(myICM[x]->gyrY(), 2) + ",";
       payload += "\"z\": " + String(myICM[x]->gyrZ(), 2);
+      payload += "},";
+      payload += "\"orientation\": {";
+      payload += "\"roll\": " + String(roll, 2) + ",";
+      payload += "\"pitch\": " + String(pitch, 2) + ",";
+      payload += "\"yaw\": " + String(yaw, 2);
       payload += "}";
       payload += "},";
     }
