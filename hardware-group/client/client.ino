@@ -139,13 +139,18 @@ void loop()
   {
     myMux.setPort(x); // Tell MUX to connect to this port, and this port only
 
-    if (myICM[x]->dataReady() && (myICM[x]->status == ICM_20948_Stat_FIFOMoreDataAvail))
-    {
-      myICM[x]->getAGMT(); // Retrieve data for this IMU
+    // DMP
+    icm_20948_DMP_data_t data;
+    myICM[x]->readDMPdataFromFIFO(&data);
+    // dubugging
+    // SERIAL_PORT.println(myICM[x]->dataReady());
+    // SERIAL_PORT.println(myICM[x]->status);
 
-      // DMP
-      icm_20948_DMP_data_t data;
-      myICM[x]->readDMPdataFromFIFO(&data);
+    if (myICM[x]->dataReady() || (myICM[x]->status == ICM_20948_Stat_FIFOMoreDataAvail))
+    {
+      //debug
+      SERIAL_PORT.println("loop entered");
+      myICM[x]->getAGMT(); // Retrieve data for this IMU
 
       double roll = 0.0, pitch = 0.0, yaw = 0.0; // Default values
 

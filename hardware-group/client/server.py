@@ -62,9 +62,9 @@ def receive_data():
                     rows.append(imu.get('gyro').get('x', None))
                     rows.append(imu.get('gyro').get('y', None))
                     rows.append(imu.get('gyro').get('z', None))
-                    rows.append(imu.get('roll'))
-                    rows.append(imu.get('pitch'))
-                    rows.append(imu.get('yaw'))
+                    rows.append(imu.get('orientation').get('roll', None))
+                    rows.append(imu.get('orientation').get('pitch', None))
+                    rows.append(imu.get('orientation').get('yaw', None))
                     rows.append(timestamp)
                 writer.writerow(rows)
 
