@@ -1,0 +1,46 @@
+Gait Analysis Report
+===================
+
+
+
+Fran's Results:
+--------------------
+
+IMU0:
+- Number of steps: 2
+- Cadence: 7.43 steps/minute
+- Average step time: 9.09 seconds
+- Range of Motion: 6.12°
+- Dorsiflexion: 3.28°
+- Plantarflexion: 2.84°
+
+IMU1:
+- Number of steps: 3
+- Cadence: 11.15 steps/minute
+- Average step time: 7.04 seconds
+- Range of Motion: 5.81°
+- Dorsiflexion: 1.54°
+- Plantarflexion: 4.27°
+
+Symmetry Index: 5.24%
+
+Xisen's Results:
+--------------------
+
+IMU0:
+- Number of steps: 3
+- Cadence: 12.03 steps/minute
+- Average step time: 6.02 seconds
+- Range of Motion: 3.41°
+- Dorsiflexion: 2.00°
+- Plantarflexion: 1.41°
+
+IMU1:
+- Number of steps: 3
+- Cadence: 12.03 steps/minute
+- Average step time: 5.18 seconds
+- Range of Motion: 10.76°
+- Dorsiflexion: 4.13°
+- Plantarflexion: 6.63°
+
+Symmetry Index: 103.83%

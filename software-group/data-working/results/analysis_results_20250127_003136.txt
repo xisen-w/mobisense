@@ -1,0 +1,8 @@
+Gait Analysis Results
+==================
+
+Fran Analysis Results:
+{'Step Count': 3, 'Max Angle X': np.float64(0.05979323484407375), 'Max Angle Y': np.float64(0.15077899407979015), 'Max Angle Z': np.float64(0.03609689958974673)}
+
+Xisen Analysis Results:
+{'Step Count': 3, 'Max Angle X': np.float64(0.11157366309224152), 'Max Angle Y': np.float64(0.00870744763819971), 'Max Angle Z': np.float64(0.011414453308042916)}

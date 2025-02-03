@@ -1,0 +1,30 @@
+Gait Analysis Report
+===================
+
+
+
+Fran's Results:
+--------------------
+
+IMU0:
+- Number of steps: 2
+- Cadence: 7.43 steps/minute
+- Average step time: 9.09 seconds
+
+IMU1:
+- Number of steps: 3
+- Cadence: 11.15 steps/minute
+- Average step time: 6.41 seconds
+
+Xisen's Results:
+--------------------
+
+IMU0:
+- Number of steps: 2
+- Cadence: 8.02 steps/minute
+- Average step time: 5.48 seconds
+
+IMU1:
+- Number of steps: 2
+- Cadence: 8.02 steps/minute
+- Average step time: 6.20 seconds
