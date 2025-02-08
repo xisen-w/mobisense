@@ -30,3 +30,16 @@ If no data is received on the server,
 - try restarting Arduino by pressing the button
 - try terminating and rerunning `server.py`
 - check your wifi connection by running `sparkfun_imu/imu_wifi_test` with your Arduino plugged in your laptop
+
+## Inverse Kinematics Script  
+This script calculates joint angles in the sagittal plane using IMU sensor data. It helps analyze lower limb movement.  
+
+Note Digital Motion Processor (DMP) fusion algorithm requires ~45 seconds to stabilize. Wait 45 seconds before recording data.
+
+Assumptions  
+- IMU reference axes must be aligned:
+  - X-axis points away from the treadmill.  
+  - Z-axis points towards the ceiling.  
+- IMU placement on the limb: 
+  - X-axis extends away from the treadmill.  
+  - Z-axis points away from the body.  
