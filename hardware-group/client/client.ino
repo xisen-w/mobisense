@@ -71,8 +71,9 @@ void setup()
       SERIAL_PORT.print("IMU ");
       SERIAL_PORT.print(x);
       SERIAL_PORT.println(" successfully initialised."); 
+    }
 
-    // Initialise DMP
+    // Initialise DMP module for the set IMU
     bool success = true; // Use success to show if the DMP configuration was successful
     success &= (myICM[x]->initializeDMP() == ICM_20948_Stat_Ok); 
     success &= (myICM[x]->enableDMPSensor(INV_ICM20948_SENSOR_GAME_ROTATION_VECTOR) == ICM_20948_Stat_Ok); 
@@ -90,17 +91,20 @@ void setup()
     // Reset FIFO
     success &= (myICM[x]->resetFIFO() == ICM_20948_Stat_Ok);  
 
-    if (success)
+    if (success)  // DMP module check
     {
       SERIAL_PORT.println(F("DMP enabled!"));
-    } else {
+    } 
+    else 
+    {
       SERIAL_PORT.println(F("Enable DMP failed!"));
       SERIAL_PORT.println(F("Please check that you have uncommented line 29 (#define ICM_20948_USE_DMP) in ICM_20948_C.h..."));
       while (1)
         ;
     }
   }
-  if (initSuccess == false)
+
+  if (initSuccess == false)  // Overall IMU initialisation check
   {
     SERIAL_PORT.print("Error in IMU initialisation. Freezing...");
     while (1)
@@ -124,7 +128,6 @@ void setup()
     SERIAL_PORT.println("}");
   }
   SERIAL_PORT.println("Connected to Wi-Fi");
-  }
 }
 
 void loop()
@@ -148,8 +151,6 @@ void loop()
 
     if (myICM[x]->dataReady() || (myICM[x]->status == ICM_20948_Stat_FIFOMoreDataAvail))
     {
-      //debug
-      SERIAL_PORT.println("loop entered");
       myICM[x]->getAGMT(); // Retrieve data for this IMU
 
       double roll = 0.0, pitch = 0.0, yaw = 0.0; // Default values
