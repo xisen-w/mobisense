@@ -9,7 +9,7 @@ app = Flask(__name__)
 NUMBER_OF_SENSORS = 2
 
 # File to store data
-data_folder = os.getcwd() + "/data"
+data_folder = os.path.dirname(__file__) + "/data"
 os.makedirs(data_folder, exist_ok=True)
 file_path = data_folder + datetime.datetime.now().strftime("/%Y-%m-%d_%H-%M-%S.csv")
 
@@ -30,6 +30,9 @@ def init_csv():
                     rows.append(imu + "_gyro_x")
                     rows.append(imu + "_gyro_y")
                     rows.append(imu + "_gyro_z")
+                    rows.append(imu + "_roll")
+                    rows.append(imu + "_pitch")
+                    rows.append(imu + "_yaw")
                     rows.append(imu + "_timestamp")
                 writer.writerow(rows)  # Add headers
 
@@ -59,6 +62,9 @@ def receive_data():
                     rows.append(imu.get('gyro').get('x', None))
                     rows.append(imu.get('gyro').get('y', None))
                     rows.append(imu.get('gyro').get('z', None))
+                    rows.append(imu.get('orientation').get('roll', None))
+                    rows.append(imu.get('orientation').get('pitch', None))
+                    rows.append(imu.get('orientation').get('yaw', None))
                     rows.append(timestamp)
                 writer.writerow(rows)
 
