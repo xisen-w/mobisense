@@ -9,7 +9,7 @@ app = Flask(__name__)
 NUMBER_OF_SENSORS = 2
 
 # File to store data
-data_folder = os.getcwd() + "/data"
+data_folder = os.path.dirname(__file__) + "/data"
 os.makedirs(data_folder, exist_ok=True)
 file_path = data_folder + datetime.datetime.now().strftime("/%Y-%m-%d_%H-%M-%S.csv")
 
