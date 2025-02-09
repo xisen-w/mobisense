@@ -1,7 +1,13 @@
+#define USE_UDP  // toggle for http/udp, comment off to use HTTP
+
 #include <Wire.h>
 
 #include <WiFiS3.h>                             // For Wi-Fi connectivity
-#include <ArduinoHttpClient.h>                  // For HTTP requests
+#ifdef USE_UDP
+  #include <WiFiUdp.h>                          // For UDP requests
+#else
+  #include <ArduinoHttpClient.h>                // For HTTP requests
+#endif
 
 #include <ICM_20948.h>                          // For IMUs
 #include <SparkFun_I2C_Mux_Arduino_Library.h>   // For MUX
@@ -9,7 +15,11 @@
 #include "Constants.h"  // Pre-defined constants
 
 WiFiClient WIFI;                        // Wi-Fi client
+#ifdef USE_UDP
+WiFiUDP udp;                            // UDP Client
+#else
 HttpClient client(WIFI, SERVER, PORT);  // HTTP client
+#endif
 
 QWIICMUX myMux;         // Create instance of the Qwiic Mux class
 ICM_20948_I2C **myICM;  // Create pointer to a set of pointers to the sensor class
@@ -123,9 +133,10 @@ void setup()
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
+    WiFi.begin(SSID, PASSWORD);
     SERIAL_PORT.print("Connecting to Wi-Fi with ID {");
     SERIAL_PORT.print(SSID);
-    SERIAL_PORT.println("}");
+    SERIAL_PORT.println("} ...");
   }
   SERIAL_PORT.println("Connected to Wi-Fi");
 }
@@ -229,22 +240,31 @@ void loop()
     SERIAL_PORT.println(payload); // Print payload for debugging
 
     // Send JSON payload to the server
-    client.beginRequest();
-    client.post(API_PATH);
-    client.sendHeader("Content-Type", "application/json");
-    client.sendHeader("Content-Length", payload.length());
-    client.beginBody();
-    client.print(payload);
-    client.endRequest();
+    #ifdef USE_UDP
+      // UDP Transmission
+      udp.beginPacket(SERVER, PORT);
+      udp.print(payload);
+      udp.endPacket();
+      SERIAL_PORT.println("Sent via UDP");
+    #else
+      // HTTP Transmission
+      client.beginRequest();
+      client.post(API_PATH);
+      client.sendHeader("Content-Type", "application/json");
+      client.sendHeader("Content-Length", payload.length());
+      client.beginBody();
+      client.print(payload);
+      client.endRequest();
 
-    // Check response
-    int statusCode = client.responseStatusCode();
-    String response = client.responseBody();
+      // Check response
+      int statusCode = client.responseStatusCode();
+      String response = client.responseBody();
 
-    SERIAL_PORT.print("Status Code: ");
-    SERIAL_PORT.println(statusCode);
-    SERIAL_PORT.print("Response: ");
-    SERIAL_PORT.println(response);
+      SERIAL_PORT.print("Status Code: ");
+      SERIAL_PORT.println(statusCode);
+      SERIAL_PORT.print("Response: ");
+      SERIAL_PORT.println(response);
+    #endif
   }
   else
   {
