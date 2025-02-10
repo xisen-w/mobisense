@@ -26,14 +26,15 @@ QWIICMUX myMux;         // Create instance of the Qwiic Mux class
 ICM_20948_I2C **myICM;  // Create pointer to a set of pointers to the sensor class
 
 // global variables
-unsigned long lastLoopTime = 0;
-const int targetInterval = 10;  // 100 Hz = 10 ms interval
+char payload[256];  // initialise fixed-sized json payload
 
 // Debug parameters
 #ifdef DEBUG
   unsigned long lastSendTime = 0;
   float sendingFrequency = 0.0; // Frequency in Hz
   int packetCount = 0;  // Count packets sent
+  unsigned long lastLoopTime = 0;
+  const int targetInterval = 10;  // 100 Hz = 10 ms interval
 #endif
 
 void setup()
@@ -158,11 +159,10 @@ void setup()
 
 void loop()
 {
-  // Create a JSON payload
-  String payload = "{ \"imu_data\": [";
+  // Re-initialise payload buffer
+  snprintf(payload, sizeof(payload), "{\"imu_data\":[");
 
   bool allDataReady = true; // Flag to check if all IMUs have data
-
   for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
   {
     myMux.setPort(x); // Tell MUX to connect to this port, and this port only
@@ -211,25 +211,20 @@ void loop()
           yaw = atan2(t3, t4) * 180.0 / PI;
       }
 
-      // Append this IMU's data to the JSON payload
-      payload += "{";
-      payload += "\"imu\": " + String(x) + ",";
-      payload += "\"acceleration\": {";
-      payload += "\"x\": " + String(myICM[x]->accX(), 2) + ",";
-      payload += "\"y\": " + String(myICM[x]->accY(), 2) + ",";
-      payload += "\"z\": " + String(myICM[x]->accZ(), 2);
-      payload += "},";
-      payload += "\"gyro\": {";
-      payload += "\"x\": " + String(myICM[x]->gyrX(), 2) + ",";
-      payload += "\"y\": " + String(myICM[x]->gyrY(), 2) + ",";
-      payload += "\"z\": " + String(myICM[x]->gyrZ(), 2);
-      payload += "},";
-      payload += "\"orientation\": {";
-      payload += "\"roll\": " + String(roll, 2) + ",";
-      payload += "\"pitch\": " + String(pitch, 2) + ",";
-      payload += "\"yaw\": " + String(yaw, 2);
-      payload += "}";
-      payload += "},";
+      // Create JSON payload for this IMU
+      char imuData[128];
+      snprintf(imuData, sizeof(imuData),
+        "{\"imu\":%d,\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f,\"r\":%.2f,\"p\":%.2f,\"y\":%.2f}%s",
+        x, myICM[x]->accX(),myICM[x]->accY(),myICM[x]->accZ(),
+        myICM[x]->gyrX(),myICM[x]->gyrY(),myICM[x]->gyrZ(),
+        roll, pitch, yaw, 
+        (x < NUMBER_OF_SENSORS - 1) ? "," : ""  // Add comma except for last IMU
+      );
+      // Append IMU data to payload
+      strncat(payload, imuData, sizeof(payload) - strlen(payload) - 1);
+      // Serial.println(payload);
+      // Serial.print("Size needed: ");
+      // Serial.println(sizeNeeded);
     }
     else
     {
@@ -239,13 +234,6 @@ void loop()
       allDataReady = false; // Mark as incomplete if any IMU data is missing
     }
   }
-
-  // Remove the trailing comma and close the JSON array and object
-  if (payload.endsWith(","))
-  {
-    payload.remove(payload.length() - 1); // Remove last comma
-  }
-  payload += "] }";
 
   // Check if all data is ready
   if (allDataReady)
@@ -270,8 +258,10 @@ void loop()
         SERIAL_PORT.print("sending freq: ");
         SERIAL_PORT.println(sendingFrequency);
       #endif
+      strncat(payload, "]}", sizeof(payload) - strlen(payload) - 1);  // Close JSON array
+      // Serial.println(payload);
       udp.beginPacket(SERVER, PORT);
-      udp.print(payload);
+      udp.write((uint8_t*)payload, strlen(payload));
       udp.endPacket();
     #else
       // HTTP Transmission

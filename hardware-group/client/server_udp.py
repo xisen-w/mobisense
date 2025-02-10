@@ -70,15 +70,23 @@ def save_data_to_csv(imu_data):
             for i in range(NUMBER_OF_SENSORS):
                 imu = imu_data[i]
                 rows += [
-                    imu.get('acceleration').get('x', None),
-                    imu.get('acceleration').get('y', None),
-                    imu.get('acceleration').get('z', None),
-                    imu.get('gyro').get('x', None),
-                    imu.get('gyro').get('y', None),
-                    imu.get('gyro').get('z', None),
-                    imu.get('orientation').get('roll', None),
-                    imu.get('orientation').get('pitch', None),
-                    imu.get('orientation').get('yaw', None),
+                    imu.get('ax', None),
+                    imu.get('ay', None),
+                    imu.get('az', None),
+                    imu.get('gx', None),
+                    imu.get('gy', None),
+                    imu.get('gz', None),
+                    imu.get('r', None),
+                    imu.get('p', None),
+                    imu.get('y', None),
+                    # imu.get('acceleration').get('y', None),
+                    # imu.get('acceleration').get('z', None),
+                    # imu.get('gyro').get('x', None),
+                    # imu.get('gyro').get('y', None),
+                    # imu.get('gyro').get('z', None),
+                    # imu.get('orientation').get('roll', None),
+                    # imu.get('orientation').get('pitch', None),
+                    # imu.get('orientation').get('yaw', None),
                     timestamp
                 ]
             writer.writerow(rows)
