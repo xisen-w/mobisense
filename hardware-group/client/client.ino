@@ -14,11 +14,11 @@
 
 #include "Constants.h"  // Pre-defined constants
 
-WiFiClient WIFI;                        // Wi-Fi client
+WiFiClient WIFI;                                // Wi-Fi client
 #ifdef USE_UDP
-WiFiUDP udp;                            // UDP Client
+  WiFiUDP udp;                                  // UDP Client
 #else
-HttpClient client(WIFI, SERVER, PORT);  // HTTP client
+  HttpClient client(WIFI, SERVER, PORT);        // HTTP client
 #endif
 
 QWIICMUX myMux;         // Create instance of the Qwiic Mux class
@@ -139,6 +139,22 @@ void setup()
     SERIAL_PORT.println("} ...");
   }
   SERIAL_PORT.println("Connected to Wi-Fi");
+
+  // Open UDP port for UDP packet sending
+  udp.begin(LOCAL_UDP_PORT);
+  // Test if Arduino can reach the UDP server
+  Serial.print("Arduino IP Address: ");
+  Serial.println(WiFi.localIP());
+  int pingResult = WiFi.ping(SERVER);
+  Serial.print("Ping result to ");
+  Serial.print(SERVER);
+  Serial.print(": ");
+  Serial.println(pingResult);
+  if (pingResult == -1) {
+      Serial.println("Server not reachable. Check the IP.");
+  } else {
+      Serial.println("Server is reachable.");
+  }
 }
 
 void loop()
@@ -242,10 +258,19 @@ void loop()
     // Send JSON payload to the server
     #ifdef USE_UDP
       // UDP Transmission
-      udp.beginPacket(SERVER, PORT);
+      int result = udp.beginPacket(SERVER, PORT);
+      Serial.print("UDP beginPacket() result: ");
+      Serial.println(result);  // Should print "1" if successful
+
       udp.print(payload);
-      udp.endPacket();
-      SERIAL_PORT.println("Sent via UDP");
+      int sent = udp.endPacket();
+      Serial.print("UDP endPacket() result: ");
+      Serial.println(sent);  // Should print "1" if successful
+
+      Serial.print("Sent UDP packet to ");
+      Serial.print(SERVER);
+      Serial.print(":");
+      Serial.println(PORT);
     #else
       // HTTP Transmission
       client.beginRequest();
