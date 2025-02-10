@@ -21,7 +21,7 @@ def get_local_ip():
 
 
 # UDP server configuration
-UDP_IP = "0.0.0.0"         # Listen on all network interfaces
+UDP_IP = get_local_ip()     # Listen on local machine's IP address
 UDP_PORT = 8000
 BUFFER_SIZE = 4096          # Maximum size of the payload
 

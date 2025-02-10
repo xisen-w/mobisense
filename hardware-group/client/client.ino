@@ -142,19 +142,6 @@ void setup()
 
   // Open UDP port for UDP packet sending
   udp.begin(LOCAL_UDP_PORT);
-  // Test if Arduino can reach the UDP server
-  Serial.print("Arduino IP Address: ");
-  Serial.println(WiFi.localIP());
-  int pingResult = WiFi.ping(SERVER);
-  Serial.print("Ping result to ");
-  Serial.print(SERVER);
-  Serial.print(": ");
-  Serial.println(pingResult);
-  if (pingResult == -1) {
-      Serial.println("Server not reachable. Check the IP.");
-  } else {
-      Serial.println("Server is reachable.");
-  }
 }
 
 void loop()
@@ -258,19 +245,9 @@ void loop()
     // Send JSON payload to the server
     #ifdef USE_UDP
       // UDP Transmission
-      int result = udp.beginPacket(SERVER, PORT);
-      Serial.print("UDP beginPacket() result: ");
-      Serial.println(result);  // Should print "1" if successful
-
+      udp.beginPacket(SERVER, PORT);
       udp.print(payload);
-      int sent = udp.endPacket();
-      Serial.print("UDP endPacket() result: ");
-      Serial.println(sent);  // Should print "1" if successful
-
-      Serial.print("Sent UDP packet to ");
-      Serial.print(SERVER);
-      Serial.print(":");
-      Serial.println(PORT);
+      udp.endPacket();
     #else
       // HTTP Transmission
       client.beginRequest();
