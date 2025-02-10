@@ -1,4 +1,5 @@
-#define USE_UDP  // toggle for http/udp, comment off to use HTTP
+#define USE_UDP   // toggle for http/udp, comment off to use HTTP
+#define DEBUG     // toggle for debug: displaying sending freq in Hz
 
 #include <Wire.h>
 
@@ -23,6 +24,17 @@ WiFiClient WIFI;                                // Wi-Fi client
 
 QWIICMUX myMux;         // Create instance of the Qwiic Mux class
 ICM_20948_I2C **myICM;  // Create pointer to a set of pointers to the sensor class
+
+// global variables
+unsigned long lastLoopTime = 0;
+const int targetInterval = 10;  // 100 Hz = 10 ms interval
+
+// Debug parameters
+#ifdef DEBUG
+  unsigned long lastSendTime = 0;
+  float sendingFrequency = 0.0; // Frequency in Hz
+  int packetCount = 0;  // Count packets sent
+#endif
 
 void setup()
 {
@@ -150,7 +162,6 @@ void loop()
   String payload = "{ \"imu_data\": [";
 
   bool allDataReady = true; // Flag to check if all IMUs have data
-  int delay_time = 1 / SAMPLE_RATE * 1000;
 
   for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
   {
@@ -239,12 +250,26 @@ void loop()
   // Check if all data is ready
   if (allDataReady)
   {
-    SERIAL_PORT.println("All IMU readings obtained. Sending data...");
-    SERIAL_PORT.println(payload); // Print payload for debugging
+    // SERIAL_PORT.println("All IMU readings obtained. Sending data...");
+    // SERIAL_PORT.println(payload); // Print payload for debugging
 
     // Send JSON payload to the server
     #ifdef USE_UDP
       // UDP Transmission
+      // Debug
+      #ifdef DEBUG
+        unsigned long currentTime = millis();  // Get current time in milliseconds
+        // Compute sending frequency (only after first packet)
+        if (lastSendTime > 0) 
+        {
+          unsigned long elapsedTime = currentTime - lastSendTime;
+          sendingFrequency = 1000.0 / elapsedTime;  // Convert ms to Hz
+        }
+        lastSendTime = currentTime;  // Update last send time
+        packetCount++;
+        SERIAL_PORT.print("sending freq: ");
+        SERIAL_PORT.println(sendingFrequency);
+      #endif
       udp.beginPacket(SERVER, PORT);
       udp.print(payload);
       udp.endPacket();
@@ -272,6 +297,4 @@ void loop()
   {
     SERIAL_PORT.println("Error: Not all IMU data is ready. No data sent.");
   }
-
-  delay(delay_time);
 }
