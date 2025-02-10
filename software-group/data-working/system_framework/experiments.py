@@ -1,3 +1,6 @@
+from typing import Dict, Any
+import pandas as pd
+
 class Participant:
     """Height, weight, age, gender, etc."""
     def __init__(self, participant_id, height, weight, age, gender, stride_length, stride_number_per_minute):
@@ -30,6 +33,7 @@ class Ankle_Sprained_Participant(Participant):
 
     def get_participant_data(self):
         pass 
+    
 
 class IMU_Experiment_Setup:
 
@@ -41,3 +45,32 @@ class IMU_Experiment_Setup:
 
     def run_experiment(self):
         pass
+
+    def load_experiment_data(self, filepath: str) -> pd.DataFrame:
+        """Load experiment data from CSV file"""
+        try:
+            return pd.read_csv(filepath)
+        except Exception as e:
+            print(f"Error loading data: {str(e)}")
+            return None
+        
+    def get_experiment_info(self) -> Dict[str, Any]:
+        """Return experiment information as a dictionary"""
+        return {
+            'experiment_name': self.experiment_name,
+            'experiment_description': self.experiment_description,
+            'participant': self.participant.get_participant_data(),
+            'data_path': self.experiment_data_path,
+            'results_path': self.results_path
+        }
+    
+    def validate_experiment_data(self) -> bool:
+        """Validate experiment data structure and content"""
+        required_columns = ['imu0_timestamp', 'imu0_acc_x', 'imu0_acc_y', 'imu0_acc_z',
+                          'imu0_gyro_x', 'imu0_gyro_y', 'imu0_gyro_z']
+        
+        # Check if all required columns exist in experiment data
+        return all(col in self.experiment_data.keys() for col in required_columns)
+
+    
+ 
