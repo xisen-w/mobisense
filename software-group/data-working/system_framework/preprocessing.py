@@ -99,8 +99,23 @@ class Preprocessor:
         filtered_data = pd.DataFrame(index=data.index)
         
         for column in data.columns:
+            # Get original length
+            original_length = len(data[column])
+            
+            # Perform wavelet decomposition and reconstruction
             coeffs = pywt.wavedec(data[column].values, wavelet, level=level)
-            filtered_data[column] = pywt.waverec(coeffs, wavelet)
+            reconstructed = pywt.waverec(coeffs, wavelet)
+            
+            # Ensure the reconstructed signal matches the original length
+            if len(reconstructed) > original_length:
+                reconstructed = reconstructed[:original_length]
+            elif len(reconstructed) < original_length:
+                # Pad with the last value if necessary
+                reconstructed = np.pad(reconstructed, 
+                                     (0, original_length - len(reconstructed)),
+                                     'edge')
+            
+            filtered_data[column] = reconstructed
             
         return filtered_data
 
