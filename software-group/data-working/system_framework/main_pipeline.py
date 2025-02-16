@@ -7,7 +7,7 @@ from matplotlib.gridspec import GridSpec
 
 # Main pipeline for the system
 
-IMU_Data_Path = "/Users/wangxiang/Desktop/my_workspace/mobisense/software-group/data-working/assets/jan23exp/IMU/xisen_walking_2025-01-22_17-46-40.csv"
+IMU_Data_Path = "/Users/wangxiang/Desktop/my_workspace/mobisense/software-group/data-working/assets/feb10exp/feb-10-fran-walking.csv"
 
 # 1. Get the participant data
 participant = Participant(participant_id="Fran", height=1.70, weight=70, age=20, gender="male", stride_length=0.5, stride_number_per_minute=96)
