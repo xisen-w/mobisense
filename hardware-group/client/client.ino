@@ -10,6 +10,7 @@
 #endif
 #include <ICM_20948.h>                          // For IMUs
 #include <SparkFun_I2C_Mux_Arduino_Library.h>   // For MUX
+#include <ArduinoGraphics.h>
 #include "Arduino_LED_Matrix.h"
 
 #include "Constants.h"                          // Pre-defined constants
@@ -26,7 +27,7 @@ ArduinoLEDMatrix matrix;                        // LED matrix
 
 // global variables
 char payload[256];            // initialise fixed-sized json payload
-int countDown = 300;          // delay before start mark
+int countDown = 300 * 18;          // delay before start mark
 bool startRecording = false;  // Flag to check if start recording
 
 // Debug parameters
@@ -280,6 +281,10 @@ void loop()
         udp.beginPacket(SERVER, PORT);
         udp.write((uint8_t*)payload, strlen(payload));
         udp.endPacket();
+        matrix.textFont(Font_4x6);
+        matrix.beginText(0, 1, 0xFFFFFF);
+        matrix.println(String(countDown));
+        matrix.endText();
       }
       if (countDown == 0 && !startRecording)
       {
