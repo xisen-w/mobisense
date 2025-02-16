@@ -26,9 +26,13 @@ ICM_20948_I2C **myICM;                          // Create pointer to a set of po
 ArduinoLEDMatrix matrix;                        // LED matrix
 
 // global variables
-char payload[256];            // initialise fixed-sized json payload
-int countDown = 300 * 18;          // delay before start mark
-bool startRecording = false;  // Flag to check if start recording
+// initialise fixed-sized string payload
+char payload[256];
+// count down parameters
+unsigned long lastCountDownTime = 0;
+unsigned long lastLoopTimeForCountDown = 0;
+// flag to check if start recording
+bool startRecording = false;
 
 // Debug parameters
 #ifdef DEBUG
@@ -148,6 +152,7 @@ void setup()
   SERIAL_PORT.print("Connecting to Wi-Fi with ID {");
   SERIAL_PORT.print(SSID);
   SERIAL_PORT.println("} ...");
+  matrix.loadFrame(wifiFrame);
   WiFi.begin(SSID, PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED)
@@ -159,6 +164,7 @@ void setup()
     SERIAL_PORT.println("} ...");
   }
   SERIAL_PORT.println("Connected to Wi-Fi");
+  matrix.loadFrame(LEDMATRIX_LIKE);
 
   // Open UDP port for UDP packet sending
   udp.begin(LOCAL_UDP_PORT);
@@ -169,13 +175,19 @@ void loop()
   // Re-initialise payload buffer
   // snprintf(payload, sizeof(payload), "{\"imu_data\":[");
   snprintf(payload, sizeof(payload), "");
+
   // countDown before matrix lights up
-  if (countDown > 0)
+  if (lastCountDownTime == 0)
+  {
+    lastCountDownTime = millis();
+  }
+  lastLoopTimeForCountDown = millis();
+
+  if (countDown > 0 && lastLoopTimeForCountDown - lastCountDownTime >= 1000)
   {
     countDown -= 1;
+    lastCountDownTime = lastLoopTimeForCountDown;
   }
-  Serial.print("count down: ");
-  Serial.println(countDown);
 
   bool allDataReady = true;     // Flag to check if all IMUs have data
   for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
@@ -282,8 +294,8 @@ void loop()
         udp.write((uint8_t*)payload, strlen(payload));
         udp.endPacket();
         matrix.textFont(Font_4x6);
-        matrix.beginText(0, 1, 0xFFFFFF);
-        matrix.println(String(countDown));
+        matrix.beginText(0, 1, 255, 0, 0);
+        matrix.println(String(countDown) + "  ");
         matrix.endText();
       }
       if (countDown == 0 && !startRecording)

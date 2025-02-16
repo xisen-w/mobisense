@@ -6,13 +6,13 @@
 // const char* PASSWORD = "hahahaha";
 // const char* SSID = "iPhone di francesco (2)";
 // const char* PASSWORD = "swag1234";
-// const char* SSID = "SHIL-WIFI";
-// const char* PASSWORD = "bhqcclcvjcvk";
-const char* SSID = "Hertford";
-const char* PASSWORD = "HaIhRLwreEnp";
+const char* SSID = "SHIL-WIFI";
+const char* PASSWORD = "bhqcclcvjcvk";
+// const char* SSID = "Hertford";
+// const char* PASSWORD = "HaIhRLwreEnp";
 
 // Server settings
-const char* SERVER = "10.133.176.13";  // Boting's Laptop
+const char* SERVER = "10.130.149.170";  // Boting's Laptop
 const int PORT = 8000;
 const char* API_PATH = "/api/data";
 
@@ -31,17 +31,23 @@ const char* API_PATH = "/api/data";
 #define SAMPLE_RATE 100         // Sample rate in Hz
 
 // LED Matrix settings
+int countDown = 120;  // seconds
+const uint32_t wifiFrame[] =
+{
+  0xE031,
+  0x84040E01,
+  0x10000040
+};
 const uint32_t startFrame[] =
 {
-    0xFFFFFFFF,
-    0xFFFFFFFF,
-    0xFFFFFFFF
+  0xFFFFFFFF,
+  0xFFFFFFFF,
+  0xFFFFFFFF
 };
 const uint32_t dangerFrame[] =
 {
-	0x400a015,
-	0x1502082,
-	0x484047fc
+  0x400a015,
+  0x1502082,
+  0x484047fc
 };
-
 #endif
