@@ -32,11 +32,10 @@ EXPECTED_VALUES = 9         # Each IMU has 9 values
 # File to store data
 data_folder = os.path.dirname(__file__) + "/data"
 os.makedirs(data_folder, exist_ok=True)
-file_path = data_folder + datetime.datetime.now().strftime("/%Y-%m-%d_%H-%M-%S.csv")
 
 
 # Initialize CSV file with headers if it doesn't exist
-def init_csv():
+def init_csv(file_path):
     try:
         with open(file_path, mode='a', newline='') as file:
             writer = csv.writer(file)
@@ -57,21 +56,22 @@ def init_csv():
 
 
 # Save data to csv file
-def save_data_to_csv(imu_data):
+def save_data_to_csv(imu_data, file_path):
     """Save data to CSV file
 
     Args:
         imu_data: pased csv data from the Arduino
     """
-    try:
-        with open(file_path, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            timestamp = datetime.datetime.now().isoformat()
-            for i in range(NUMBER_OF_SENSORS):
-                imu_data.insert(10 * i + EXPECTED_VALUES, timestamp)
-            writer.writerow(imu_data)
-    except Exception as e:
-        print(f"Error saving data to CSV file: {e}")
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                timestamp = datetime.datetime.now().isoformat()
+                for i in range(NUMBER_OF_SENSORS):
+                    imu_data.insert(10 * i + EXPECTED_VALUES, timestamp)
+                writer.writerow(imu_data)
+        except Exception as e:
+            print(f"Error saving data to CSV file: {e}")
 
 
 # udp server
@@ -81,6 +81,8 @@ def udp_server():
     sock.bind((UDP_IP, UDP_PORT))
     print(f"UDP server listening on {UDP_IP}:{UDP_PORT}")
 
+    file_path = None
+
     while True:
         try:
             # Receive raw binary data from the Arduino and parse csv data
@@ -89,20 +91,27 @@ def udp_server():
             print(f"Received data from {addr}: {data}")
             imu_data = data.split(",")
 
-            # Ensure correct number of values received
-            expected_values = NUMBER_OF_SENSORS * EXPECTED_VALUES
-            if len(imu_data) != expected_values:
-                print(f"Warning: Expected {expected_values} values, got {len(imu_data)}")
-                continue  # Skip bad packets
+            # Check for start event
+            if imu_data == ["start"]:
+                file_path = data_folder + datetime.datetime.now().strftime("/%Y-%m-%d_%H-%M-%S.csv")
+                init_csv(file_path)
+                continue
+            
+            if file_path is not None:
+                if imu_data == ["starting..."]:
+                    continue
 
-            # Convert to float (except first column, which is an integer IMU ID)
-            parsed_data = [float(v) for v in imu_data]
-            save_data_to_csv(parsed_data)
+                expected_values = NUMBER_OF_SENSORS * EXPECTED_VALUES
+                if len(imu_data) != expected_values:
+                    print(f"Warning: Expected {expected_values} values, got {len(imu_data)}")
+                    continue  # Skip bad packets
+
+                parsed_data = [float(v) for v in imu_data]
+                save_data_to_csv(parsed_data, file_path)
 
         except Exception as e:
             print(f"Error processing UDP data: {e}")
 
 
 if __name__ == '__main__':
-    init_csv()
     udp_server()

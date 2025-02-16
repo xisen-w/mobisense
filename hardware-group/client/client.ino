@@ -2,18 +2,17 @@
 #define DEBUG     // toggle for debug: displaying sending freq in Hz
 
 #include <Wire.h>
-
 #include <WiFiS3.h>                             // For Wi-Fi connectivity
 #ifdef USE_UDP
   #include <WiFiUdp.h>                          // For UDP requests
 #else
   #include <ArduinoHttpClient.h>                // For HTTP requests
 #endif
-
 #include <ICM_20948.h>                          // For IMUs
 #include <SparkFun_I2C_Mux_Arduino_Library.h>   // For MUX
+#include "Arduino_LED_Matrix.h"
 
-#include "Constants.h"  // Pre-defined constants
+#include "Constants.h"                          // Pre-defined constants
 
 WiFiClient WIFI;                                // Wi-Fi client
 #ifdef USE_UDP
@@ -21,18 +20,20 @@ WiFiClient WIFI;                                // Wi-Fi client
 #else
   HttpClient client(WIFI, SERVER, PORT);        // HTTP client
 #endif
-
-QWIICMUX myMux;         // Create instance of the Qwiic Mux class
-ICM_20948_I2C **myICM;  // Create pointer to a set of pointers to the sensor class
+QWIICMUX myMux;                                 // Create instance of the Qwiic Mux class
+ICM_20948_I2C **myICM;                          // Create pointer to a set of pointers to the sensor class
+ArduinoLEDMatrix matrix;                        // LED matrix
 
 // global variables
-char payload[256];  // initialise fixed-sized json payload
+char payload[256];            // initialise fixed-sized json payload
+int countDown = 300;          // delay before start mark
+bool startRecording = false;  // Flag to check if start recording
 
 // Debug parameters
 #ifdef DEBUG
   unsigned long lastSendTime = 0;
-  float sendingFrequency = 0.0; // Frequency in Hz
-  int packetCount = 0;  // Count packets sent
+  float sendingFrequency = 0.0;   // Frequency in Hz
+  int packetCount = 0;            // Count packets sent
   unsigned long lastLoopTime = 0;
   const int targetInterval = 10;  // 100 Hz = 10 ms interval
 #endif
@@ -44,6 +45,11 @@ void setup()
   // {
   //   // hang
   // };
+
+
+  /* ######################### Initialising LED Matrix ######################### */
+  matrix.begin();
+  SERIAL_PORT.println("LED Matrix Initialised.");
 
 
   /* ######################### Initialising MUX ######################### */
@@ -162,8 +168,15 @@ void loop()
   // Re-initialise payload buffer
   // snprintf(payload, sizeof(payload), "{\"imu_data\":[");
   snprintf(payload, sizeof(payload), "");
+  // countDown before matrix lights up
+  if (countDown > 0)
+  {
+    countDown -= 1;
+  }
+  Serial.print("count down: ");
+  Serial.println(countDown);
 
-  bool allDataReady = true; // Flag to check if all IMUs have data
+  bool allDataReady = true;     // Flag to check if all IMUs have data
   for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
   {
     myMux.setPort(x); // Tell MUX to connect to this port, and this port only
@@ -259,10 +272,32 @@ void loop()
         // SERIAL_PORT.print("sending freq: ");
         SERIAL_PORT.println(sendingFrequency);
       #endif
-      // Serial.println(payload);
-      udp.beginPacket(SERVER, PORT);
-      udp.write((uint8_t*)payload, strlen(payload));
-      udp.endPacket();
+
+      // recording start event
+      if (countDown > 0 && !startRecording)
+      {
+        snprintf(payload, sizeof(payload), "starting...");
+        udp.beginPacket(SERVER, PORT);
+        udp.write((uint8_t*)payload, strlen(payload));
+        udp.endPacket();
+      }
+      if (countDown == 0 && !startRecording)
+      {
+        startRecording = true;
+        snprintf(payload, sizeof(payload), "start");
+        udp.beginPacket(SERVER, PORT);
+        udp.write((uint8_t*)payload, strlen(payload));
+        udp.endPacket();
+        // lights matrix
+        matrix.loadFrame(startFrame);
+      }
+      if (startRecording)
+      {
+        // Serial.println(payload);
+        udp.beginPacket(SERVER, PORT);
+        udp.write((uint8_t*)payload, strlen(payload));
+        udp.endPacket();
+      }
     #else
       // HTTP Transmission
       client.beginRequest();
@@ -286,5 +321,7 @@ void loop()
   else
   {
     SERIAL_PORT.println("Error: Not all IMU data is ready. No data sent.");
+    // lights up LED
+    matrix.loadFrame(dangerFrame);
   }
 }
