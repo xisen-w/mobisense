@@ -23,10 +23,11 @@ def get_local_ip():
 # UDP server configuration
 UDP_IP = get_local_ip()     # Listen on local machine's IP address
 UDP_PORT = 8000
-BUFFER_SIZE = 4096          # Maximum size of the payload
+BUFFER_SIZE = 256           # Maximum size of the payload
 
-# metadata
+# imu metadata
 NUMBER_OF_SENSORS = 2
+EXPECTED_VALUES = 9         # Each IMU has 9 values
 
 # File to store data
 data_folder = os.path.dirname(__file__) + "/data"
@@ -60,36 +61,15 @@ def save_data_to_csv(imu_data):
     """Save data to CSV file
 
     Args:
-        imu_data: JSON header data from the Arduino
+        imu_data: pased csv data from the Arduino
     """
     try:
         with open(file_path, mode='a', newline='') as file:
             writer = csv.writer(file)
             timestamp = datetime.datetime.now().isoformat()
-            rows = []
             for i in range(NUMBER_OF_SENSORS):
-                imu = imu_data[i]
-                rows += [
-                    imu.get('ax', None),
-                    imu.get('ay', None),
-                    imu.get('az', None),
-                    imu.get('gx', None),
-                    imu.get('gy', None),
-                    imu.get('gz', None),
-                    imu.get('r', None),
-                    imu.get('p', None),
-                    imu.get('y', None),
-                    # imu.get('acceleration').get('y', None),
-                    # imu.get('acceleration').get('z', None),
-                    # imu.get('gyro').get('x', None),
-                    # imu.get('gyro').get('y', None),
-                    # imu.get('gyro').get('z', None),
-                    # imu.get('orientation').get('roll', None),
-                    # imu.get('orientation').get('pitch', None),
-                    # imu.get('orientation').get('yaw', None),
-                    timestamp
-                ]
-            writer.writerow(rows)
+                imu_data.insert(10 * i + EXPECTED_VALUES, timestamp)
+            writer.writerow(imu_data)
     except Exception as e:
         print(f"Error saving data to CSV file: {e}")
 
@@ -103,16 +83,24 @@ def udp_server():
 
     while True:
         try:
-            # Receive raw binary data from the Arduino and parse json data
+            # Receive raw binary data from the Arduino and parse csv data
             data, addr = sock.recvfrom(BUFFER_SIZE)
-            decoded_imu_data = json.loads(data.decode("utf-8"))
-            print(f"Received data from {addr}: {decoded_imu_data}")
+            data = data.decode("utf-8").strip()
+            print(f"Received data from {addr}: {data}")
+            imu_data = data.split(",")
 
-            # Save data to CSV file
-            if "imu_data" in decoded_imu_data:
-                save_data_to_csv(decoded_imu_data["imu_data"])
+            # Ensure correct number of values received
+            expected_values = NUMBER_OF_SENSORS * EXPECTED_VALUES
+            if len(imu_data) != expected_values:
+                print(f"Warning: Expected {expected_values} values, got {len(imu_data)}")
+                continue  # Skip bad packets
+
+            # Convert to float (except first column, which is an integer IMU ID)
+            parsed_data = [float(v) for v in imu_data]
+            save_data_to_csv(parsed_data)
+
         except Exception as e:
-            print(f"Error receiving data: {e}")
+            print(f"Error processing UDP data: {e}")
 
 
 if __name__ == '__main__':

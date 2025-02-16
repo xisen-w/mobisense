@@ -160,7 +160,8 @@ void setup()
 void loop()
 {
   // Re-initialise payload buffer
-  snprintf(payload, sizeof(payload), "{\"imu_data\":[");
+  // snprintf(payload, sizeof(payload), "{\"imu_data\":[");
+  snprintf(payload, sizeof(payload), "");
 
   bool allDataReady = true; // Flag to check if all IMUs have data
   for (byte x = 0; x < NUMBER_OF_SENSORS; x++)
@@ -214,8 +215,8 @@ void loop()
       // Create JSON payload for this IMU
       char imuData[128];
       snprintf(imuData, sizeof(imuData),
-        "{\"imu\":%d,\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f,\"r\":%.2f,\"p\":%.2f,\"y\":%.2f}%s",
-        x, myICM[x]->accX(),myICM[x]->accY(),myICM[x]->accZ(),
+        "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f%s",
+        myICM[x]->accX(),myICM[x]->accY(),myICM[x]->accZ(),
         myICM[x]->gyrX(),myICM[x]->gyrY(),myICM[x]->gyrZ(),
         roll, pitch, yaw, 
         (x < NUMBER_OF_SENSORS - 1) ? "," : ""  // Add comma except for last IMU
@@ -224,7 +225,7 @@ void loop()
       strncat(payload, imuData, sizeof(payload) - strlen(payload) - 1);
       // Serial.println(payload);
       // Serial.print("Size needed: ");
-      // Serial.println(sizeNeeded);
+      // Serial.println(strlen(payload));
     }
     else
     {
@@ -255,10 +256,9 @@ void loop()
         }
         lastSendTime = currentTime;  // Update last send time
         packetCount++;
-        SERIAL_PORT.print("sending freq: ");
+        // SERIAL_PORT.print("sending freq: ");
         SERIAL_PORT.println(sendingFrequency);
       #endif
-      strncat(payload, "]}", sizeof(payload) - strlen(payload) - 1);  // Close JSON array
       // Serial.println(payload);
       udp.beginPacket(SERVER, PORT);
       udp.write((uint8_t*)payload, strlen(payload));
