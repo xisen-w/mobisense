@@ -395,6 +395,54 @@ class Preprocessor:
         
         return orientation
 
+    def sampling__boosting(self, data: pd.DataFrame, target_freq: float, 
+                          method: str = 'linear', fill_gaps: bool = True) -> pd.DataFrame:
+        """
+        Boosts the sampling rate of the data to a target frequency using interpolation
+         
+        Args:
+            data: Input DataFrame with datetime index
+            target_freq: Target frequency in Hz
+            method: Interpolation method ('linear', 'cubic', 'spline', 'polynomial')
+            fill_gaps: Whether to fill NaN values that might occur during resampling
+            
+        Returns:
+            pd.DataFrame: Resampled data at target frequency
+        """
+        if not isinstance(data.index, pd.DatetimeIndex):
+            raise ValueError("Data must have a DatetimeIndex")
+        
+        # Calculate target time delta
+        target_delta = pd.Timedelta(seconds=1/target_freq)
+        
+        # Create new time index at target frequency
+        new_index = pd.date_range(start=data.index[0], 
+                                 end=data.index[-1], 
+                                 freq=target_delta)
+        
+        # Resample and interpolate
+        resampled_data = pd.DataFrame(index=new_index)
+        
+        for column in data.columns:
+            if method == 'linear':
+                resampled_data[column] = data[column].reindex(new_index).interpolate(method='linear')
+            elif method == 'cubic':
+                resampled_data[column] = data[column].reindex(new_index).interpolate(method='cubic')
+            elif method == 'spline':
+                resampled_data[column] = data[column].reindex(new_index).interpolate(method='spline', order=3)
+            elif method == 'polynomial':
+                resampled_data[column] = data[column].reindex(new_index).interpolate(method='polynomial', order=2)
+            else:
+                raise ValueError(f"Unsupported interpolation method: {method}")
+        
+        # Optionally fill any remaining gaps
+        if fill_gaps:
+            resampled_data = resampled_data.fillna(method='ffill').fillna(method='bfill')
+        
+        return resampled_data
+    
+
+
 
 
     

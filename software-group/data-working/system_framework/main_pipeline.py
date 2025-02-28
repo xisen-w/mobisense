@@ -7,7 +7,7 @@ from matplotlib.gridspec import GridSpec
 
 # Main pipeline for the system
 
-IMU_Data_Path = "/Users/wangxiang/Desktop/my_workspace/mobisense/software-group/data-working/assets/feb10exp/feb-10-fran-walking.csv"
+IMU_Data_Path = "/Users/wangxiang/Desktop/my_workspace/mobisense/software-group/data-working/assets/feb16exp/2025-02-16_18-15-14_round_1.csv"
 
 # 1. Get the participant data
 participant = Participant(participant_id="Fran", height=1.70, weight=70, age=20, gender="male", stride_length=0.5, stride_number_per_minute=96)
@@ -99,52 +99,67 @@ filtered_data5_imu1['timestamp'] = imu1_timestamp
 # Option 2: Set seaborn defaults without using matplotlib style
 sns.set_theme(style="whitegrid", palette="muted")
 
-def plot_filtered_data_comparison(original, filtered_versions, sensor_type, imu_number):
+def plot_filtered_data_comparison(original, filtered_versions, sensor_type, imu_number, timestamps):
     """Plot comparison of different filtering methods for each axis"""
     axes = ['x', 'y', 'z']
     fig = plt.figure(figsize=(15, 10))
     gs = GridSpec(3, 1, figure=fig)
+    
+    # Convert timestamps to datetime objects
+    time_axis = pd.to_datetime(timestamps)
     
     for idx, axis in enumerate(axes):
         ax = fig.add_subplot(gs[idx])
         col_name = f'{sensor_type}_{axis}'
         
         # Plot original data
-        ax.plot(original[col_name], label='Original', alpha=0.5)
+        ax.plot(time_axis, original[col_name], label='Original', alpha=0.5)
         
         # Plot filtered versions
-        ax.plot(filtered_versions[0][col_name], label='Low Pass', alpha=0.7)
-        ax.plot(filtered_versions[1][col_name], label='Gradient', alpha=0.7)
-        ax.plot(filtered_versions[2][col_name], label='Wavelet', alpha=0.7)
-        ax.plot(filtered_versions[3][col_name], label='FFT', alpha=0.7)
-        ax.plot(filtered_versions[4][col_name], label='Kalman', alpha=0.7)
+        ax.plot(time_axis, filtered_versions[0][col_name], label='Low Pass', alpha=0.7)
+        ax.plot(time_axis, filtered_versions[1][col_name], label='Gradient', alpha=0.7)
+        ax.plot(time_axis, filtered_versions[2][col_name], label='Wavelet', alpha=0.7)
+        ax.plot(time_axis, filtered_versions[3][col_name], label='FFT', alpha=0.7)
+        ax.plot(time_axis, filtered_versions[4][col_name], label='Kalman', alpha=0.7)
         
         ax.set_title(f'{sensor_type.upper()} {axis}-axis (IMU {imu_number})')
         ax.set_ylabel('Value')
         ax.legend()
+        
+        # Format x-axis
+        ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%H:%M:%S'))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
     
     plt.tight_layout()
     return fig
 
-def plot_orientation_data(orientation_data, imu_number):
+def plot_orientation_data(orientation_data, imu_number, timestamps):
     """Plot orientation angles over time"""
     fig, ax = plt.subplots(figsize=(12, 6))
     
-    ax.plot(orientation_data['roll'], label='Roll')
-    ax.plot(orientation_data['pitch'], label='Pitch')
-    ax.plot(orientation_data['yaw'], label='Yaw')
+    time_axis = pd.to_datetime(timestamps)
+    
+    ax.plot(time_axis, orientation_data['roll'], label='Roll')
+    ax.plot(time_axis, orientation_data['pitch'], label='Pitch')
     
     ax.set_title(f'Orientation Angles Over Time (IMU {imu_number})')
-    ax.set_xlabel('Sample')
+    ax.set_xlabel('Time')
     ax.set_ylabel('Degrees')
     ax.legend()
     
+    # Format x-axis
+    ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%H:%M:%S'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    
+    plt.tight_layout()
     return fig
 
-def plot_eda_results(eda_results, imu_number):
+def plot_eda_results(eda_results, imu_number, timestamps):
     """Plot key EDA insights"""
     fig = plt.figure(figsize=(15, 10))
     gs = GridSpec(2, 2, figure=fig)
+    
+    time_axis = pd.to_datetime(timestamps)
     
     # Basic statistics plot
     ax1 = fig.add_subplot(gs[0, 0])
@@ -156,9 +171,10 @@ def plot_eda_results(eda_results, imu_number):
     # Frequency domain plot
     ax2 = fig.add_subplot(gs[0, 1])
     for sensor in ['acc_x', 'acc_y', 'acc_z']:
-        freqs = eda_results['frequency_domain'][sensor]['dominant_frequencies']
-        mags = eda_results['frequency_domain'][sensor]['frequency_magnitudes']
-        ax2.plot(freqs, mags, label=sensor)
+        if sensor in eda_results['frequency_domain']:
+            freqs = eda_results['frequency_domain'][sensor]['dominant_frequencies']
+            mags = eda_results['frequency_domain'][sensor]['frequency_magnitudes']
+            ax2.plot(freqs, mags, label=sensor)
     ax2.set_title('Dominant Frequencies')
     ax2.set_xlabel('Frequency (Hz)')
     ax2.set_ylabel('Magnitude')
@@ -176,10 +192,11 @@ def plot_eda_results(eda_results, imu_number):
     
     # Peak analysis
     ax4 = fig.add_subplot(gs[1, 1])
-    peak_counts = {k: v['peak_count'] for k, v in eda_results['peaks'].items()}
-    pd.Series(peak_counts).plot(kind='bar', ax=ax4)
-    ax4.set_title('Peak Counts')
-    ax4.tick_params(axis='x', rotation=45)
+    if 'peaks' in eda_results:
+        peak_counts = {k: v['peak_count'] for k, v in eda_results['peaks'].items()}
+        pd.Series(peak_counts).plot(kind='bar', ax=ax4)
+        ax4.set_title('Peak Counts')
+        ax4.tick_params(axis='x', rotation=45)
     
     plt.tight_layout()
     return fig
@@ -192,29 +209,29 @@ filtered_versions_imu1 = [filtered_data_imu1, filtered_data2_imu1, filtered_data
                          filtered_data4_imu1, filtered_data5_imu1]
 
 # Plot and save IMU0 visualizations
-fig_acc_imu0 = plot_filtered_data_comparison(imu0_numeric_data, filtered_versions_imu0, 'acc', 0)
+fig_acc_imu0 = plot_filtered_data_comparison(imu0_numeric_data, filtered_versions_imu0, 'acc', 0, raw_data['imu0_timestamp'])
 fig_acc_imu0.savefig('imu0_accelerometer_comparison.png')
 
-fig_gyro_imu0 = plot_filtered_data_comparison(imu0_numeric_data, filtered_versions_imu0, 'gyro', 0)
+fig_gyro_imu0 = plot_filtered_data_comparison(imu0_numeric_data, filtered_versions_imu0, 'gyro', 0, raw_data['imu0_timestamp'])
 fig_gyro_imu0.savefig('imu0_gyroscope_comparison.png')
 
-fig_orientation_imu0 = plot_orientation_data(orientation_imu0, 0)
+fig_orientation_imu0 = plot_orientation_data(orientation_imu0, 0, raw_data['imu0_timestamp'])
 fig_orientation_imu0.savefig('imu0_orientation.png')
 
-fig_eda_imu0 = plot_eda_results(eda_results_imu0, 0)
+fig_eda_imu0 = plot_eda_results(eda_results_imu0, 0, raw_data['imu0_timestamp'])
 fig_eda_imu0.savefig('imu0_eda_analysis.png')
 
 # Plot and save IMU1 visualizations
-fig_acc_imu1 = plot_filtered_data_comparison(imu1_numeric_data, filtered_versions_imu1, 'acc', 1)
+fig_acc_imu1 = plot_filtered_data_comparison(imu1_numeric_data, filtered_versions_imu1, 'acc', 1, raw_data['imu1_timestamp'])
 fig_acc_imu1.savefig('imu1_accelerometer_comparison.png')
 
-fig_gyro_imu1 = plot_filtered_data_comparison(imu1_numeric_data, filtered_versions_imu1, 'gyro', 1)
+fig_gyro_imu1 = plot_filtered_data_comparison(imu1_numeric_data, filtered_versions_imu1, 'gyro', 1, raw_data['imu1_timestamp'])
 fig_gyro_imu1.savefig('imu1_gyroscope_comparison.png')
 
-fig_orientation_imu1 = plot_orientation_data(orientation_imu1, 1)
+fig_orientation_imu1 = plot_orientation_data(orientation_imu1, 1, raw_data['imu1_timestamp'])
 fig_orientation_imu1.savefig('imu1_orientation.png')
 
-fig_eda_imu1 = plot_eda_results(eda_results_imu1, 1)
+fig_eda_imu1 = plot_eda_results(eda_results_imu1, 1, raw_data['imu1_timestamp'])
 fig_eda_imu1.savefig('imu1_eda_analysis.png')
 
 plt.show()
