@@ -152,7 +152,7 @@ class RangeOfMotionAnalyzer:
         # Calculate angles for the entire dataset
         angles_dict = self.calculate_ankle_angles(data)
         angles = angles_dict['angles']
-        
+        i
         # Initialize dynamic metrics
         dynamic_metrics = pd.DataFrame()
         

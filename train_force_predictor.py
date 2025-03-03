@@ -230,134 +230,134 @@ def main():
     print(f"\nTraining set size: {len(X_train)}")
     print(f"Validation set size: {len(X_val)}")
     
-    # Scale data
-    scaler_X = StandardScaler()
-    scaler_y = StandardScaler()
+    # # Scale data
+    # scaler_X = StandardScaler()
+    # scaler_y = StandardScaler()
     
-    # Reshape for scaling
-    X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
-    X_val_reshaped = X_val.reshape(-1, X_val.shape[-1])
+    # # Reshape for scaling
+    # X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
+    # X_val_reshaped = X_val.reshape(-1, X_val.shape[-1])
     
-    # Fit and transform
-    X_train_scaled_reshaped = scaler_X.fit_transform(X_train_reshaped)
-    X_val_scaled_reshaped = scaler_X.transform(X_val_reshaped)
+    # # Fit and transform
+    # X_train_scaled_reshaped = scaler_X.fit_transform(X_train_reshaped)
+    # X_val_scaled_reshaped = scaler_X.transform(X_val_reshaped)
     
-    # Reshape back
-    X_train_scaled = X_train_scaled_reshaped.reshape(X_train.shape)
-    X_val_scaled = X_val_scaled_reshaped.reshape(X_val.shape)
+    # # Reshape back
+    # X_train_scaled = X_train_scaled_reshaped.reshape(X_train.shape)
+    # X_val_scaled = X_val_scaled_reshaped.reshape(X_val.shape)
     
-    # Scale targets
-    y_train_scaled = scaler_y.fit_transform(y_train)
-    y_val_scaled = scaler_y.transform(y_val)
+    # # Scale targets
+    # y_train_scaled = scaler_y.fit_transform(y_train)
+    # y_val_scaled = scaler_y.transform(y_val)
     
-    # Create model
-    print("Creating model...")
-    model = create_simple_model(
-        SEQUENCE_LENGTH, 
-        X_train.shape[2], 
-        y_train.shape[1]
-    )
+    # # Create model
+    # print("Creating model...")
+    # model = create_simple_model(
+    #     SEQUENCE_LENGTH, 
+    #     X_train.shape[2], 
+    #     y_train.shape[1]
+    # )
     
-    model.summary()
+    # model.summary()
     
-    # Compile model
-    optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
-    model.compile(
-        optimizer=optimizer,
-        loss='mse',
-        metrics=['mae']
-    )
+    # # Compile model
+    # optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
+    # model.compile(
+    #     optimizer=optimizer,
+    #     loss='mse',
+    #     metrics=['mae']
+    # )
     
-    # Callbacks
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=20,
-            restore_best_weights=True,
-            verbose=1
-        ),
-        tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
-            patience=10,
-            min_lr=0.00001,
-            verbose=1
-        ),
-        tf.keras.callbacks.ModelCheckpoint(
-            filepath=f'{output_dir}/best_model',
-            monitor='val_loss',
-            save_best_only=True,
-            verbose=1
-        ),
-        tf.keras.callbacks.TensorBoard(
-            log_dir=f'{output_dir}/logs',
-            histogram_freq=1
-        )
-    ]
+    # # Callbacks
+    # callbacks = [
+    #     tf.keras.callbacks.EarlyStopping(
+    #         monitor='val_loss',
+    #         patience=20,
+    #         restore_best_weights=True,
+    #         verbose=1
+    #     ),
+    #     tf.keras.callbacks.ReduceLROnPlateau(
+    #         monitor='val_loss',
+    #         factor=0.5,
+    #         patience=10,
+    #         min_lr=0.00001,
+    #         verbose=1
+    #     ),
+    #     tf.keras.callbacks.ModelCheckpoint(
+    #         filepath=f'{output_dir}/best_model',
+    #         monitor='val_loss',
+    #         save_best_only=True,
+    #         verbose=1
+    #     ),
+    #     tf.keras.callbacks.TensorBoard(
+    #         log_dir=f'{output_dir}/logs',
+    #         histogram_freq=1
+    #     )
+    # ]
     
-    # Train model
-    print("Training model...")
-    history = model.fit(
-        X_train_scaled, y_train_scaled,
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        validation_data=(X_val_scaled, y_val_scaled),
-        callbacks=callbacks,
-        verbose=1
-    )
+    # # Train model
+    # print("Training model...")
+    # history = model.fit(
+    #     X_train_scaled, y_train_scaled,
+    #     epochs=EPOCHS,
+    #     batch_size=BATCH_SIZE,
+    #     validation_data=(X_val_scaled, y_val_scaled),
+    #     callbacks=callbacks,
+    #     verbose=1
+    # )
     
-    # Save model
-    print("\nSaving model...")
-    model.save(f'{output_dir}/final_model', save_format='tf')
+    # # Save model
+    # print("\nSaving model...")
+    # model.save(f'{output_dir}/final_model', save_format='tf')
     
-    # Save scaler parameters
-    scaler_X_params = {
-        'mean': scaler_X.mean_.tolist(),
-        'scale': scaler_X.scale_.tolist()
-    }
+    # # Save scaler parameters
+    # scaler_X_params = {
+    #     'mean': scaler_X.mean_.tolist(),
+    #     'scale': scaler_X.scale_.tolist()
+    # }
     
-    scaler_y_params = {
-        'mean': scaler_y.mean_.tolist(),
-        'scale': scaler_y.scale_.tolist()
-    }
+    # scaler_y_params = {
+    #     'mean': scaler_y.mean_.tolist(),
+    #     'scale': scaler_y.scale_.tolist()
+    # }
     
-    with open(f'{output_dir}/scaler_X.json', 'w') as f:
-        json.dump(scaler_X_params, f, indent=2)
+    # with open(f'{output_dir}/scaler_X.json', 'w') as f:
+    #     json.dump(scaler_X_params, f, indent=2)
     
-    with open(f'{output_dir}/scaler_y.json', 'w') as f:
-        json.dump(scaler_y_params, f, indent=2)
+    # with open(f'{output_dir}/scaler_y.json', 'w') as f:
+    #     json.dump(scaler_y_params, f, indent=2)
     
-    # Evaluate model
-    print("\nEvaluating model...")
-    y_pred_scaled = model.predict(X_val_scaled)
-    y_pred = scaler_y.inverse_transform(y_pred_scaled)
+    # # Evaluate model
+    # print("\nEvaluating model...")
+    # y_pred_scaled = model.predict(X_val_scaled)
+    # y_pred = scaler_y.inverse_transform(y_pred_scaled)
     
-    # Calculate metrics
-    metrics = evaluate_predictions(y_val, y_pred, PARTICIPANT_WEIGHT_KG)
+    # # Calculate metrics
+    # metrics = evaluate_predictions(y_val, y_pred, PARTICIPANT_WEIGHT_KG)
     
-    # Print metrics
-    print("\nEvaluation Metrics:")
-    print(f"Overall MAE: {metrics['Overall']['MAE (N)']:.2f} N")
-    print(f"Overall RMSE: {metrics['Overall']['RMSE (N)']:.2f} N")
-    print("\nComponent-wise MAE:")
-    for component, values in metrics['Components'].items():
-        print(f"  {component}: {values['MAE (N)']:.2f} N")
+    # # Print metrics
+    # print("\nEvaluation Metrics:")
+    # print(f"Overall MAE: {metrics['Overall']['MAE (N)']:.2f} N")
+    # print(f"Overall RMSE: {metrics['Overall']['RMSE (N)']:.2f} N")
+    # print("\nComponent-wise MAE:")
+    # for component, values in metrics['Components'].items():
+    #     print(f"  {component}: {values['MAE (N)']:.2f} N")
     
-    print("\nVertical Force Metrics:")
-    print(f"  True Total Vertical Force: {metrics['Physics']['True Total Vertical Force (N)']:.2f} N")
-    print(f"  Predicted Total Vertical Force: {metrics['Physics']['Predicted Total Vertical Force (N)']:.2f} N")
-    print(f"  Body Weight Force: {metrics['Physics']['Body Weight Force (N)']:.2f} N")
-    print(f"  Vertical Force Error: {metrics['Physics']['Vertical Force Error (N)']:.2f} N ({metrics['Physics']['Vertical Force Error (%)']:.2f}%)")
+    # print("\nVertical Force Metrics:")
+    # print(f"  True Total Vertical Force: {metrics['Physics']['True Total Vertical Force (N)']:.2f} N")
+    # print(f"  Predicted Total Vertical Force: {metrics['Physics']['Predicted Total Vertical Force (N)']:.2f} N")
+    # print(f"  Body Weight Force: {metrics['Physics']['Body Weight Force (N)']:.2f} N")
+    # print(f"  Vertical Force Error: {metrics['Physics']['Vertical Force Error (N)']:.2f} N ({metrics['Physics']['Vertical Force Error (%)']:.2f}%)")
     
-    # Save metrics
-    with open(f'{output_dir}/evaluation_metrics.json', 'w') as f:
-        json.dump(metrics, f, indent=2)
+    # # Save metrics
+    # with open(f'{output_dir}/evaluation_metrics.json', 'w') as f:
+    #     json.dump(metrics, f, indent=2)
     
-    # Plot results
-    plot_results(history, y_val, y_pred, metrics, output_dir)
+    # # Plot results
+    # plot_results(history, y_val, y_pred, metrics, output_dir)
     
-    print("\nTraining completed successfully!")
-    print(f"All outputs saved to '{output_dir}' directory")
+    # print("\nTraining completed successfully!")
+    # print(f"All outputs saved to '{output_dir}' directory")
 
 if __name__ == "__main__":
     main() 
