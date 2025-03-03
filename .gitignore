@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+mobienv/
+venv/
+
+# Ignore all model_output folders
+model_output/
+**/model_output/
+
 # Distribution / packaging
 .Python
 build/
