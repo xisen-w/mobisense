@@ -4,153 +4,131 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+import json
+import os
 
 def load_and_prepare_sequences(file_path, sequence_length=10):
-    """Load data and prepare sequences with sliding window"""
+    """Load and prepare data with minimal preprocessing"""
     # Load the data
     df = pd.read_csv(file_path)
+    print(f"Raw data shape: {df.shape}")
     
-    # Separate features and targets
+    # Select features and targets
     imu_features = []
-    for i in range(2):  # IMU0 and IMU1
-        for sensor in ['acc', 'gyro']:
-            for axis in ['x', 'y', 'z']:
-                imu_features.append(f'imu{i}_{sensor}_{axis}')
+    for i in range(2):
+        for axis in ['x', 'y', 'z']:
+            imu_features.append(f'imu{i}_acc_{axis}')
+            imu_features.append(f'imu{i}_gyro_{axis}')
     
     force_targets = []
     for side in ['left', 'right']:
         for component in ['vx', 'vy', 'vz']:
             force_targets.append(f'ground_force_{side}_{component}')
     
-    # Create sequences
+    # Print statistics
+    print("\nForce Targets Statistics:")
+    print(df[force_targets].describe())
+    
+    # Create sequences with overlap
     sequences = []
     targets = []
+    stride = 1  # Maximum overlap for more samples
     
-    for i in range(len(df) - sequence_length):
+    for i in range(0, len(df) - sequence_length, stride):
         seq = df[imu_features].values[i:i+sequence_length]
         target = df[force_targets].values[i+sequence_length-1]
-        sequences.append(seq)
-        targets.append(target)
+        
+        # Only include sequences with significant vertical force
+        total_vy = np.abs(target[1]) + np.abs(target[4])  # Sum of left_vy and right_vy
+        if total_vy > 50:  # Only include steps with significant vertical force
+            sequences.append(seq)
+            targets.append(target)
     
-    return np.array(sequences), np.array(targets)
+    X = np.array(sequences)
+    y = np.array(targets)
+    
+    print(f"\nProcessed dataset shape - X: {X.shape}, y: {y.shape}")
+    return X, y
 
 def create_simple_model(sequence_length, n_features, n_outputs):
-    """Create a simpler sequence model"""
-    model = tf.keras.Sequential([
-        # Input layer
-        tf.keras.layers.Input(shape=(sequence_length, n_features)),
-        
-        # First LSTM layer
-        tf.keras.layers.LSTM(64, return_sequences=True),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.Dropout(0.2),
-        
-        # Second LSTM layer
-        tf.keras.layers.LSTM(32),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.Dropout(0.2),
-        
-        # Dense layers for prediction
-        tf.keras.layers.Dense(32, activation='relu'),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.Dense(n_outputs)
-    ])
+    """Create a simple LSTM model"""
+    inputs = tf.keras.layers.Input(shape=(sequence_length, n_features))
+    
+    # LSTM layers
+    x = tf.keras.layers.LSTM(64, return_sequences=True)(inputs)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.LSTM(32)(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    
+    # Dense layers
+    x = tf.keras.layers.Dense(32, activation='relu')(x)
+    outputs = tf.keras.layers.Dense(n_outputs)(x)
+    
+    model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
     return model
 
-def main():
-    # Parameters
-    SEQUENCE_LENGTH = 10  # Look at past 10 timesteps
-    EPOCHS = 100
-    BATCH_SIZE = 32  # Increased batch size
-    LEARNING_RATE = 0.001
+def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
+    """Evaluate predictions with component-wise metrics"""
+    # Calculate body weight force
+    body_weight_force = participant_weight_kg * 9.81
     
-    # Load and prepare sequence data
-    print("Loading and preparing data...")
-    X, y = load_and_prepare_sequences(
-        'software-group/data-working/assets/feb10exp/synced_IMU_forces_grf_fixed.csv',
-        SEQUENCE_LENGTH
-    )
+    # Component names for better reporting
+    components = ['Left Foot X', 'Left Foot Y', 'Left Foot Z', 
+                  'Right Foot X', 'Right Foot Y', 'Right Foot Z']
     
-    print(f"Dataset shape - X: {X.shape}, y: {y.shape}")
+    # Calculate metrics for each component
+    component_metrics = {}
+    for i, name in enumerate(components):
+        mae = np.mean(np.abs(y_true[:, i] - y_pred[:, i]))
+        rmse = np.sqrt(np.mean((y_true[:, i] - y_pred[:, i])**2))
+        
+        # Calculate relative error (as percentage)
+        # Avoid division by zero
+        mask = np.abs(y_true[:, i]) > 1.0
+        if np.sum(mask) > 0:
+            mre = np.mean(np.abs(y_true[mask, i] - y_pred[mask, i]) / np.abs(y_true[mask, i])) * 100
+        else:
+            mre = np.nan
+            
+        component_metrics[name] = {
+            'MAE (N)': float(mae),
+            'RMSE (N)': float(rmse),
+            'MRE (%)': float(mre) if not np.isnan(mre) else "N/A"
+        }
     
-    # Split the data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    # Calculate vertical force constraint metrics
+    total_vertical_true = np.mean(y_true[:, 1] + y_true[:, 4])  # left_vy + right_vy
+    total_vertical_pred = np.mean(y_pred[:, 1] + y_pred[:, 4])
     
-    # Scale the data
-    scaler_X = StandardScaler()
-    scaler_y = StandardScaler()
+    vertical_metrics = {
+        'True Total Vertical Force (N)': float(total_vertical_true),
+        'Predicted Total Vertical Force (N)': float(total_vertical_pred),
+        'Body Weight Force (N)': float(body_weight_force),
+        'Vertical Force Error (N)': float(np.abs(total_vertical_pred - body_weight_force)),
+        'Vertical Force Error (%)': float(np.abs(total_vertical_pred - body_weight_force) / body_weight_force * 100)
+    }
     
-    # Reshape for scaling
-    X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
-    X_test_reshaped = X_test.reshape(-1, X_test.shape[-1])
+    # Overall metrics
+    overall_mae = np.mean(np.abs(y_true - y_pred))
+    overall_rmse = np.sqrt(np.mean((y_true - y_pred)**2))
     
-    # Fit and transform
-    X_train_scaled = scaler_X.fit_transform(X_train_reshaped)
-    X_test_scaled = scaler_X.transform(X_test_reshaped)
+    metrics = {
+        'Overall': {
+            'MAE (N)': float(overall_mae),
+            'RMSE (N)': float(overall_rmse)
+        },
+        'Components': component_metrics,
+        'Physics': vertical_metrics
+    }
     
-    # Reshape back to sequences
-    X_train_scaled = X_train_scaled.reshape(X_train.shape)
-    X_test_scaled = X_test_scaled.reshape(X_test.shape)
-    
-    # Scale targets
-    y_train_scaled = scaler_y.fit_transform(y_train)
-    y_test_scaled = scaler_y.transform(y_test)
-    
-    # Create and compile model
-    print("Creating model...")
-    model = create_simple_model(
-        sequence_length=SEQUENCE_LENGTH,
-        n_features=X_train.shape[-1],
-        n_outputs=y_train.shape[-1]
-    )
-    
-    # Model summary
-    model.summary()
-    
-    # Compile model with simpler setup
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-        loss='mse',
-        metrics=['mae']
-    )
-    
-    # Train model with early stopping
-    print("Training model...")
-    history = model.fit(
-        X_train_scaled, y_train_scaled,
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        validation_split=0.2,
-        callbacks=[
-            tf.keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True,
-                verbose=1
-            ),
-            tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=5,
-                min_lr=1e-6,
-                verbose=1
-            )
-        ],
-        verbose=1
-    )
-    
-    # Evaluate model
-    print("\nEvaluating model...")
-    test_loss, test_mae = model.evaluate(X_test_scaled, y_test_scaled, verbose=1)
-    print(f"\nTest Loss: {test_loss:.4f}")
-    print(f"Test MAE: {test_mae:.4f}")
+    return metrics
+
+def plot_results(history, y_true, y_pred, metrics, output_dir):
+    """Plot training history and prediction results"""
+    os.makedirs(output_dir, exist_ok=True)
     
     # Plot training history
-    plt.figure(figsize=(15, 5))
-    
-    # Plot loss
+    plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
     plt.plot(history.history['loss'], label='Training Loss')
     plt.plot(history.history['val_loss'], label='Validation Loss')
@@ -159,7 +137,6 @@ def main():
     plt.ylabel('Loss')
     plt.legend()
     
-    # Plot MAE
     plt.subplot(1, 2, 2)
     plt.plot(history.history['mae'], label='Training MAE')
     plt.plot(history.history['val_mae'], label='Validation MAE')
@@ -169,26 +146,218 @@ def main():
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('training_history.png')
+    plt.savefig(f'{output_dir}/training_history.png')
+    
+    # Plot component-wise predictions for a sample
+    sample_idx = 0  # Use the first sample for visualization
+    
+    # Component names
+    components = ['Left Foot X', 'Left Foot Y', 'Left Foot Z', 
+                  'Right Foot X', 'Right Foot Y', 'Right Foot Z']
+    
+    plt.figure(figsize=(12, 8))
+    
+    # Plot each component
+    for i, name in enumerate(components):
+        plt.subplot(2, 3, i+1)
+        plt.bar([0, 1], [y_true[sample_idx, i], y_pred[sample_idx, i]], 
+                color=['blue', 'orange'])
+        plt.title(name)
+        plt.xticks([0, 1], ['True', 'Predicted'])
+        plt.ylabel('Force (N)')
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/component_predictions.png')
+    
+    # Plot vertical force comparison
+    plt.figure(figsize=(10, 6))
+    
+    # Get values from metrics
+    true_vertical = metrics['Physics']['True Total Vertical Force (N)']
+    pred_vertical = metrics['Physics']['Predicted Total Vertical Force (N)']
+    body_weight = metrics['Physics']['Body Weight Force (N)']
+    
+    plt.bar([0, 1, 2], [true_vertical, pred_vertical, body_weight],
+            color=['blue', 'orange', 'green'])
+    plt.title('Vertical Force Comparison')
+    plt.xticks([0, 1, 2], ['True Vertical', 'Predicted Vertical', 'Body Weight'])
+    plt.ylabel('Force (N)')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/vertical_force_comparison.png')
+    
+    # Create a bar chart for component-wise errors
+    plt.figure(figsize=(12, 6))
+    
+    component_names = list(metrics['Components'].keys())
+    mae_values = [metrics['Components'][comp]['MAE (N)'] for comp in component_names]
+    
+    plt.bar(component_names, mae_values)
+    plt.title('Component-wise MAE')
+    plt.xlabel('Force Component')
+    plt.ylabel('MAE (N)')
+    plt.xticks(rotation=45)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/component_errors.png')
+
+def main():
+    # Parameters
+    SEQUENCE_LENGTH = 10
+    EPOCHS = 150
+    BATCH_SIZE = 16
+    LEARNING_RATE = 0.001
+    PARTICIPANT_WEIGHT_KG = 70
+    
+    # Create output directory
+    output_dir = 'model_output'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Load and prepare data
+    print("Loading and preparing data...")
+    X, y = load_and_prepare_sequences(
+        'software-group/data-working/assets/feb10exp/synced_IMU_forces_grf_fixed.csv',
+        SEQUENCE_LENGTH
+    )
+    
+    # Split data
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    
+    print(f"\nTraining set size: {len(X_train)}")
+    print(f"Validation set size: {len(X_val)}")
+    
+    # Scale data
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    
+    # Reshape for scaling
+    X_train_reshaped = X_train.reshape(-1, X_train.shape[-1])
+    X_val_reshaped = X_val.reshape(-1, X_val.shape[-1])
+    
+    # Fit and transform
+    X_train_scaled_reshaped = scaler_X.fit_transform(X_train_reshaped)
+    X_val_scaled_reshaped = scaler_X.transform(X_val_reshaped)
+    
+    # Reshape back
+    X_train_scaled = X_train_scaled_reshaped.reshape(X_train.shape)
+    X_val_scaled = X_val_scaled_reshaped.reshape(X_val.shape)
+    
+    # Scale targets
+    y_train_scaled = scaler_y.fit_transform(y_train)
+    y_val_scaled = scaler_y.transform(y_val)
+    
+    # Create model
+    print("Creating model...")
+    model = create_simple_model(
+        SEQUENCE_LENGTH, 
+        X_train.shape[2], 
+        y_train.shape[1]
+    )
+    
+    model.summary()
+    
+    # Compile model
+    optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=LEARNING_RATE)
+    model.compile(
+        optimizer=optimizer,
+        loss='mse',
+        metrics=['mae']
+    )
+    
+    # Callbacks
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=20,
+            restore_best_weights=True,
+            verbose=1
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=10,
+            min_lr=0.00001,
+            verbose=1
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=f'{output_dir}/best_model',
+            monitor='val_loss',
+            save_best_only=True,
+            verbose=1
+        ),
+        tf.keras.callbacks.TensorBoard(
+            log_dir=f'{output_dir}/logs',
+            histogram_freq=1
+        )
+    ]
+    
+    # Train model
+    print("Training model...")
+    history = model.fit(
+        X_train_scaled, y_train_scaled,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        validation_data=(X_val_scaled, y_val_scaled),
+        callbacks=callbacks,
+        verbose=1
+    )
     
     # Save model
-    model.save('force_predictor_model')
+    print("\nSaving model...")
+    model.save(f'{output_dir}/final_model', save_format='tf')
     
-    # Make some predictions and compare
-    print("\nMaking sample predictions...")
-    y_pred = model.predict(X_test_scaled[:5], verbose=1)
+    # Save scaler parameters
+    scaler_X_params = {
+        'mean': scaler_X.mean_.tolist(),
+        'scale': scaler_X.scale_.tolist()
+    }
     
-    # Inverse transform predictions and actual values
-    y_pred_original = scaler_y.inverse_transform(y_pred)
-    y_test_original = scaler_y.inverse_transform(y_test_scaled[:5])
+    scaler_y_params = {
+        'mean': scaler_y.mean_.tolist(),
+        'scale': scaler_y.scale_.tolist()
+    }
     
-    # Print comparison
-    print("\nSample Predictions vs Actual Values:")
-    for i in range(5):
-        print(f"\nSample {i+1}:")
-        print(f"Predicted: {y_pred_original[i]}")
-        print(f"Actual: {y_test_original[i]}")
-        print(f"Mean Absolute Error: {np.mean(np.abs(y_pred_original[i] - y_test_original[i])):.4f}")
+    with open(f'{output_dir}/scaler_X.json', 'w') as f:
+        json.dump(scaler_X_params, f, indent=2)
+    
+    with open(f'{output_dir}/scaler_y.json', 'w') as f:
+        json.dump(scaler_y_params, f, indent=2)
+    
+    # Evaluate model
+    print("\nEvaluating model...")
+    y_pred_scaled = model.predict(X_val_scaled)
+    y_pred = scaler_y.inverse_transform(y_pred_scaled)
+    
+    # Calculate metrics
+    metrics = evaluate_predictions(y_val, y_pred, PARTICIPANT_WEIGHT_KG)
+    
+    # Print metrics
+    print("\nEvaluation Metrics:")
+    print(f"Overall MAE: {metrics['Overall']['MAE (N)']:.2f} N")
+    print(f"Overall RMSE: {metrics['Overall']['RMSE (N)']:.2f} N")
+    print("\nComponent-wise MAE:")
+    for component, values in metrics['Components'].items():
+        print(f"  {component}: {values['MAE (N)']:.2f} N")
+    
+    print("\nVertical Force Metrics:")
+    print(f"  True Total Vertical Force: {metrics['Physics']['True Total Vertical Force (N)']:.2f} N")
+    print(f"  Predicted Total Vertical Force: {metrics['Physics']['Predicted Total Vertical Force (N)']:.2f} N")
+    print(f"  Body Weight Force: {metrics['Physics']['Body Weight Force (N)']:.2f} N")
+    print(f"  Vertical Force Error: {metrics['Physics']['Vertical Force Error (N)']:.2f} N ({metrics['Physics']['Vertical Force Error (%)']:.2f}%)")
+    
+    # Save metrics
+    with open(f'{output_dir}/evaluation_metrics.json', 'w') as f:
+        json.dump(metrics, f, indent=2)
+    
+    # Plot results
+    plot_results(history, y_val, y_pred, metrics, output_dir)
+    
+    print("\nTraining completed successfully!")
+    print(f"All outputs saved to '{output_dir}' directory")
 
 if __name__ == "__main__":
     main() 
