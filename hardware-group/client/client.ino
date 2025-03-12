@@ -136,6 +136,8 @@ void setup()
       while (1)
         ;
     }
+    // enable debugging message
+    myICM[x]->enableDebugging();
   }
 
   if (initSuccess == false)  // Overall IMU initialisation check
@@ -237,6 +239,11 @@ void loop()
           double t4 = +1.0 - 2.0 * (qy * qy + qz * qz);
           yaw = atan2(t3, t4) * 180.0 / PI;
       }
+      else
+      {
+        SERIAL_PORT.println("DMP Quat6 Data Underflow");
+        matrix.loadFrame(dangerFrame);
+      }
 
       // Create JSON payload for this IMU
       char imuData[128];
@@ -260,6 +267,7 @@ void loop()
       SERIAL_PORT.println(": Data not ready. Skipping...");
       allDataReady = false; // Mark as incomplete if any IMU data is missing
     }
+    myICM[x]->debugPrintStatus(myICM[x]->status);
   }
 
   // Check if all data is ready
@@ -314,6 +322,7 @@ void loop()
         udp.beginPacket(SERVER, PORT);
         udp.write((uint8_t*)payload, strlen(payload));
         udp.endPacket();
+        matrix.loadFrame(startFrame);
       }
     #else
       // HTTP Transmission

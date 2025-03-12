@@ -6,13 +6,15 @@
 // const char* PASSWORD = "hahahaha";
 // const char* SSID = "iPhone di francesco (2)";
 // const char* PASSWORD = "swag1234";
-const char* SSID = "SHIL-WIFI";
-const char* PASSWORD = "bhqcclcvjcvk";
+// const char* SSID = "SHIL-WIFI";
+// const char* PASSWORD = "bhqcclcvjcvk";
 // const char* SSID = "Hertford";
 // const char* PASSWORD = "HaIhRLwreEnp";
+const char* SSID = "ENGS-31039 4269";
+const char* PASSWORD = "5S6f65<1";
 
 // Server settings
-const char* SERVER = "10.130.149.170";  // Boting's Laptop
+const char* SERVER = "192.168.137.218";  // Boting's Laptop
 const int PORT = 8000;
 const char* API_PATH = "/api/data";
 
@@ -31,7 +33,7 @@ const char* API_PATH = "/api/data";
 #define SAMPLE_RATE 100         // Sample rate in Hz
 
 // LED Matrix settings
-int countDown = 120;  // seconds
+int countDown = 30;  // seconds
 const uint32_t wifiFrame[] =
 {
   0xE031,
