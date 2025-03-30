@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ahrs.filters import Madgwick
 from scipy.spatial.transform import Rotation as R
+from scipy.signal import detrend
 from datetime import datetime
 import os
 
@@ -14,6 +15,10 @@ def load_imu_data(csv_file):
 def remove_drift(signal, window_size=100):
     """Removes drift by subtracting a moving average."""
     return signal - pd.Series(signal).rolling(window=window_size, center=True, min_periods=1).mean()
+
+def detrend_signal(signal):
+    """Removes linear trend (bias) from the signal."""
+    return detrend(signal,type='linear')
 
 def process_imu_data(df):
     """Processes IMU data using Madgwick filter and extracts pitch angles for both IMUs."""
@@ -60,9 +65,14 @@ def process_imu_data(df):
         timestamps.append(current_time - initial_time)
 
     # Remove drift using moving average
-    imu0_pitch = remove_drift(imu0_pitch)
-    imu1_pitch = remove_drift(imu1_pitch)
-    dorsiflexion_angles = remove_drift(dorsiflexion_angles)
+    # imu0_pitch = remove_drift(imu0_pitch)
+    # imu1_pitch = remove_drift(imu1_pitch)
+    # dorsiflexion_angles = remove_drift(dorsiflexion_angles)
+    
+    # Remove bias using detrend function
+    imu0_pitch = detrend_signal(imu0_pitch)
+    imu1_pitch = detrend_signal(imu1_pitch)
+    dorsiflexion_angles = detrend_signal(dorsiflexion_angles)
     
     return timestamps, imu0_pitch, imu1_pitch, dorsiflexion_angles
 
@@ -98,7 +108,7 @@ def save_updated_csv(df, dorsiflexion_angles, original_csv):
     print(f"Updated CSV saved to: {updated_file}")
 
 def main():
-    csv_file = "/Users/francescobalanzoni/Documents/Python/MEng/3YP/mobisense/software-group/data-working/assets/mar12exp/2025-03-12_10-13-30-r1-walking1.csv"
+    csv_file = "/Users/francescobalanzoni/Documents/Python/MEng/3YP/mobisense/software-group/data-working/assets/mar12exp/2025-03-12_10-20-54-r2-limping1.csv"
     df = load_imu_data(csv_file)
     
     timestamps, imu0_pitch, imu1_pitch, dorsiflexion_angles = process_imu_data(df)

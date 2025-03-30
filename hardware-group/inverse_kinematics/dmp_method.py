@@ -7,7 +7,11 @@ import matplotlib.pyplot as plt
 # Constants
 lines = 474 # Number of lines of CSV file
 sagittal_angle_rest = 125 # Sagittal angle at rest in degrees (measured for Francesco)
-csv_file = "/Users/francescobalanzoni/Documents/Python/MEng/3YP/mobisense/software-group/data-working/assets/mar12exp/2025-03-12_10-22-44-r3-limping2.csv"
+csv_file = "software-group/data-working/assets/mar12exp/2025-03-12_10-13-30-r1-walking1.csv"
+
+def remove_drift(signal, window_size=100):
+    """Removes drift by subtracting a moving average."""
+    return signal - pd.Series(signal).rolling(window=window_size, center=True, min_periods=1).mean()
 
 def load_selected_rows(csv_path, selected_rows):
     # Load the CSV file
@@ -52,10 +56,12 @@ sagittal_angle_walk = calculate_plantar_flexion_angle(roll0_walk,roll1_walk)
 # Calculate plantar flexion angle during walking by subtracting the resting angle
 plantar_flexion_angle_walk = sagittal_angle_rest - sagittal_angle_walk
 
+plantar_flexion_angle_walk = remove_drift(plantar_flexion_angle_walk)
+
 # Plotting time vs plantar flexion angles
 plt.plot(time, plantar_flexion_angle_walk)
 plt.xlabel('Time (s)')
-plt.ylabel('Plantar Flexion Angle (degrees)')
+plt.ylabel('Dorsiflexion Angle (degrees)')
 plt.title('Ankle sagittal plane angles (dorsiflexion [+] and plantar flexion [−])')
 plt.grid(True)
 plt.show()

@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from ahrs.filters import Madgwick
+from ahrs.filters import Complementary
 from scipy.spatial.transform import Rotation as R
 from datetime import datetime
 import os
@@ -16,14 +16,14 @@ def remove_drift(signal, window_size=100):
     return signal - pd.Series(signal).rolling(window=window_size, center=True, min_periods=1).mean()
 
 def process_imu_data(df):
-    """Processes IMU data using Madgwick filter and extracts pitch angles for both IMUs."""
-    madgwick = Madgwick(beta=0.0001)
+    """Processes IMU data using Complementary filter and extracts pitch angles for both IMUs."""
+    complementary = Complementary()
     
     imu0_pitch = []
     imu1_pitch = []
     timestamps = []
     dorsiflexion_angles = []
-
+    
     q0 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
     q1 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
 
@@ -31,22 +31,22 @@ def process_imu_data(df):
     initial_time = datetime.fromisoformat(df.loc[0, 'imu0_timestamp']).timestamp()
 
     for i in range(len(df)):
-        # Read accelerometer and gyroscope data for IMU 0
-        accel0 = np.array([df.loc[i, 'imu0_acc_x'], df.loc[i, 'imu0_acc_y'], df.loc[i, 'imu0_acc_z']])
+        # Read accelerometer and gyroscope data for IMU 0 (convert acceleration from milli m/s^2 to m/s^2)
+        accel0 = np.array([df.loc[i, 'imu0_acc_x'], df.loc[i, 'imu0_acc_y'], df.loc[i, 'imu0_acc_z']]) / 1000
         gyro0 = np.radians(np.array([df.loc[i, 'imu0_gyro_x'], df.loc[i, 'imu0_gyro_y'], df.loc[i, 'imu0_gyro_z']]))
         
-        # Compute orientation using Madgwick
-        q0 = madgwick.updateIMU(q0, gyr=gyro0, acc=accel0)
+        # Compute orientation using Complementary filter
+        q0 = complementary.update(q0, gyr=gyro0, acc=accel0)
         r0 = R.from_quat(q0)
         _, pitch0, _ = r0.as_euler('xyz', degrees=True)
         imu0_pitch.append(pitch0)
         
-        # Read accelerometer and gyroscope data for IMU 1
-        accel1 = np.array([df.loc[i, 'imu1_acc_x'], df.loc[i, 'imu1_acc_y'], df.loc[i, 'imu1_acc_z']])
+        # Read accelerometer and gyroscope data for IMU 1 (convert acceleration from milli m/s^2 to m/s^2)
+        accel1 = np.array([df.loc[i, 'imu1_acc_x'], df.loc[i, 'imu1_acc_y'], df.loc[i, 'imu1_acc_z']]) / 1000
         gyro1 = np.radians(np.array([df.loc[i, 'imu1_gyro_x'], df.loc[i, 'imu1_gyro_y'], df.loc[i, 'imu1_gyro_z']]))
         
-        # Compute orientation using Madgwick
-        q1 = madgwick.updateIMU(q1, gyr=gyro1, acc=accel1)
+        # Compute orientation using Complementary filter
+        q1 = complementary.update(q1, gyr=gyro1, acc=accel1)
         r1 = R.from_quat(q1)
         _, pitch1, _ = r1.as_euler('xyz', degrees=True)
         imu1_pitch.append(pitch1)
@@ -98,7 +98,7 @@ def save_updated_csv(df, dorsiflexion_angles, original_csv):
     print(f"Updated CSV saved to: {updated_file}")
 
 def main():
-    csv_file = "/Users/francescobalanzoni/Documents/Python/MEng/3YP/mobisense/software-group/data-working/assets/mar12exp/2025-03-12_10-13-30-r1-walking1.csv"
+    csv_file = "software-group/data-working/assets/mar12exp/2025-03-12_10-13-30-r1-walking1.csv"
     df = load_imu_data(csv_file)
     
     timestamps, imu0_pitch, imu1_pitch, dorsiflexion_angles = process_imu_data(df)

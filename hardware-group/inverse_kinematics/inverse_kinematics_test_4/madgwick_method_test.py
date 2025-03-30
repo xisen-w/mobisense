@@ -14,13 +14,13 @@ def butter_lowpass_filter(data, cutoff=5, fs=27, order=3):
     b, a = butter(order, normal_cutoff, btype='low', analog=False)
     return filtfilt(b, a, data, axis=0)
 
-def butter_highpass_filter(data, cutoff=0, fs=27, order=3):
+"""
+def butter_highpass_filter(data, cutoff=0.7, fs=29, order=3):
     # Applies a high-pass Butterworth filter to remove drift in gyro data.
     nyquist = 0.5 * fs
     normal_cutoff = cutoff / nyquist
     b, a = butter(order, normal_cutoff, btype='high', analog=False)
     return filtfilt(b, a, data, axis=0)
-"""
 
 def load_imu_data(csv_file):
     """Loads IMU data from a CSV file."""
@@ -46,10 +46,10 @@ def process_imu_data(df):
     
     # Apply filters
     #accel_data_0 = butter_lowpass_filter(accel_data_0)
-    #gyro_data_0 = butter_highpass_filter(gyro_data_0)
+    gyro_data_0 = butter_highpass_filter(gyro_data_0)
 
     #accel_data_1 = butter_lowpass_filter(accel_data_1)
-    #gyro_data_1 = butter_highpass_filter(gyro_data_1)
+    gyro_data_1 = butter_highpass_filter(gyro_data_1)
 
     for i in range(len(df)):
         accel0 = accel_data_0[i]
@@ -86,7 +86,7 @@ def plot_pitch(timestamps, imu0_pitch, imu1_pitch):
     plt.show()
 
 def plot_pitch_difference(timestamps, imu0_pitch, imu1_pitch):
-    pitch_diff = [p1 + p0 + 3.5 for p0, p1 in zip(imu0_pitch, imu1_pitch)]
+    pitch_diff = [p1 + p0 for p0, p1 in zip(imu0_pitch, imu1_pitch)]
     plt.figure(figsize=(10, 5))
     plt.plot(timestamps, pitch_diff)
     plt.xlabel("Time")
@@ -96,7 +96,7 @@ def plot_pitch_difference(timestamps, imu0_pitch, imu1_pitch):
     plt.show()
 
 def main():
-    csv_file = "/Users/francescobalanzoni/Documents/Python/MEng/3YP/mobisense/software-group/data-working/assets/mar12exp/2025-03-12_10-13-30-r1-walking1.csv"  # Change to your CSV file path
+    csv_file = "/Users/francescobalanzoni/Documents/Python/MEng/3YP/mobisense/software-group/data-working/assets/mar12exp/2025-03-12_10-20-54-r2-limping1.csv"
     df = load_imu_data(csv_file)
     
     timestamps, imu0_pitch, imu1_pitch = process_imu_data(df)
