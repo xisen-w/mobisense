@@ -1,0 +1,18 @@
+\begin{table}[htbp]
+\centering
+\caption{Comparison of Model Performance Metrics}
+\label{tab:model-comparison}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Train Loss} & \textbf{Val Loss} & \textbf{Train MAE} & \textbf{Val MAE} \\
+\midrule
+Transformer & 1.52e-3 & 1.63e-3 & 0.024 & 0.026 \\
+BidirectionalLSTM & 1.89e-2 & 1.95e-2 & 0.098 & 0.102 \\
+CNNLSTM & 1.92e-2 & 1.98e-2 & 0.101 & 0.104 \\
+LSTM & 2.15e-2 & 2.21e-2 & 0.112 & 0.115 \\
+SimpleDense & 2.45e-2 & 2.52e-2 & 0.124 & 0.128 \\
+\midrule
+\multicolumn{5}{p{0.85\linewidth}}{\small Note: Values represent the best achieved metrics during training. Lower values indicate better performance. MAE: Mean Absolute Error.} \\
+\bottomrule
+\end{tabular}
+\end{table} 
