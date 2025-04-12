@@ -75,13 +75,45 @@ class IMU_Experiment_Setup:
         """Load experiment data from CSV file"""
         try:
             filepath = filepath or self.experiment_data_path
+            
+            # First check raw file for dorsiflexion_angle
+            raw_angle_detected = False
+            with open(filepath, 'r') as f:
+                header = f.readline().strip()
+                if 'dorsiflexion_angle' in header:
+                    raw_angle_detected = True
+                    print(f"Dorsiflexion angle found in raw CSV header of {filepath}")
+                    # Get position of angle in header
+                    header_parts = header.split(',')
+                    angle_index = header_parts.index('dorsiflexion_angle')
+                    # Read first line to check angle value
+                    first_line = f.readline().strip()
+                    if first_line:
+                        data_parts = first_line.split(',')
+                        if angle_index < len(data_parts):
+                            angle_value = data_parts[angle_index]
+                            print(f"First dorsiflexion angle value: {angle_value}")
+            
+            # Try standard loading first
             data = pd.read_csv(filepath)
-            self.experiment_data = data
             
             # Check if angle data is available
             self.has_angle_data = 'dorsiflexion_angle' in data.columns
             
-            # Print for debugging
+            # If angle was in raw file but not in loaded data, try alternatives
+            if raw_angle_detected and not self.has_angle_data:
+                print(f"WARNING: Angle data found in raw CSV but not in pandas DataFrame for {filepath}")
+                print("Attempting to fix with different loading options...")
+                # Try with low_memory=False
+                data = pd.read_csv(filepath, low_memory=False)
+                self.has_angle_data = 'dorsiflexion_angle' in data.columns
+                if self.has_angle_data:
+                    print("Successfully recovered dorsiflexion angle data!")
+            
+            # Store the data
+            self.experiment_data = data
+            
+            # Debug info
             if self.has_angle_data:
                 print(f"Angle data detected in {filepath}")
                 # Verify first few values
@@ -93,6 +125,8 @@ class IMU_Experiment_Setup:
             return data
         except Exception as e:
             print(f"Error loading data: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
         
     def get_experiment_info(self) -> Dict[str, Any]:

@@ -142,6 +142,14 @@ def main():
             submitted = st.form_submit_button("Register Experiment")
             
             if submitted and uploaded_file is not None:
+                # First check raw file content
+                raw_content = uploaded_file.getvalue().decode('utf-8').splitlines()
+                header = raw_content[0]
+                first_line = raw_content[1] if len(raw_content) > 1 else ""
+                
+                # Check if dorsiflexion_angle is in header
+                has_angle_in_raw = 'dorsiflexion_angle' in header
+                
                 # Process the uploaded file
                 df = pd.read_csv(uploaded_file)
                 
@@ -149,8 +157,32 @@ def main():
                 st.subheader("Data Preview")
                 st.dataframe(df.head())
                 
+                # Debug column info
+                st.write("**Available columns:**")
+                st.write(", ".join(df.columns.tolist()))
+                
                 # Check for dorsiflexion angle column
                 has_angles = 'dorsiflexion_angle' in df.columns
+                
+                # If angle data is in raw but not in dataframe, try to fix
+                if has_angle_in_raw and not has_angles:
+                    st.warning("Dorsiflexion angle found in CSV header but not in DataFrame. Attempting to fix...")
+                    try:
+                        # Reset file pointer
+                        uploaded_file.seek(0)
+                        # Try different parsing options
+                        df = pd.read_csv(uploaded_file, low_memory=False)
+                        has_angles = 'dorsiflexion_angle' in df.columns
+                        if has_angles:
+                            st.success("Successfully recovered dorsiflexion angle data!")
+                    except Exception as e:
+                        st.error(f"Error trying to fix angle data: {str(e)}")
+                
+                # Display orientation data if available
+                orientation_cols = ['imu0_roll', 'imu0_pitch', 'imu0_yaw']
+                if all(col in df.columns for col in orientation_cols):
+                    st.write("**Orientation data preview:**")
+                    st.dataframe(df[orientation_cols].head(5))
                 
                 # Save the uploaded file
                 file_path = Path(f"experiments/{experiment_name}_{participant_id}.csv")
