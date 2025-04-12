@@ -9,6 +9,8 @@ __pycache__/
 mobienv/
 venv/
 
+software-group/data-working/system_framework/experiments/
+
 # Ignore all model_output folders
 model_output/
 **/model_output/

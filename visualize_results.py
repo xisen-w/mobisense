@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-def load_results(file_path='model_output/model_comparison_results_NEW.json'):
+def load_results(file_path='model_output/model_comparison_results_NEW_SECOND.json'):
     with open(file_path, 'r') as f:
         return json.load(f)
 
