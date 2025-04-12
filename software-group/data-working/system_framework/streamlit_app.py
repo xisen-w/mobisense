@@ -6,6 +6,8 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 from experiments import Participant, IMU_Experiment_Setup
+from RoM_updated import RangeOfMotionAnalyzer
+from gait_analysis import GaitAnalyzer
 
 st.set_page_config(page_title="MobiSense Analytics", layout="wide")
 
@@ -57,18 +59,58 @@ def plot_angle_data(df, start_idx=0, end_idx=None):
     if end_idx is None:
         end_idx = min(start_idx + 500, len(df))
     
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(10, 5))
     
     # Time array
     time_values = pd.to_datetime(df['imu0_timestamp'].iloc[start_idx:end_idx])
     time_seconds = [(t - time_values.iloc[0]).total_seconds() for t in time_values]
     
-    # Plot angle data
-    ax.plot(time_seconds, df['dorsiflexion_angle'].iloc[start_idx:end_idx], label='Dorsiflexion Angle')
-    ax.set_title('Dorsiflexion Angle')
-    ax.set_ylabel('Angle (degrees)')
-    ax.set_xlabel('Time (s)')
-    ax.grid(True)
+    # Get angle data
+    angle_data = df['dorsiflexion_angle'].iloc[start_idx:end_idx]
+    
+    # Plot angle data with enhanced styling
+    ax.plot(time_seconds, angle_data, label='Dorsiflexion Angle', 
+            color='#d62728', linewidth=2.5)
+    
+    # Calculate statistics
+    max_angle = angle_data.max()
+    min_angle = angle_data.min()
+    mean_angle = angle_data.mean()
+    neutral_angle = np.median(angle_data)
+    rom = max_angle - min_angle
+    
+    # Add reference lines
+    ax.axhline(y=neutral_angle, color='black', linestyle='--', alpha=0.7, 
+               label=f'Neutral: {neutral_angle:.2f}°')
+    ax.axhline(y=max_angle, color='green', linestyle=':', alpha=0.7, 
+               label=f'Max: {max_angle:.2f}°')
+    ax.axhline(y=min_angle, color='red', linestyle=':', alpha=0.7, 
+               label=f'Min: {min_angle:.2f}°')
+    
+    # Add annotations for key statistics
+    stats_text = (f"Range of Motion: {rom:.2f}°\n"
+                  f"Dorsiflexion: {max_angle - neutral_angle:.2f}°\n"
+                  f"Plantarflexion: {neutral_angle - min_angle:.2f}°")
+    
+    # Place stats box in the corner
+    props = dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.7)
+    ax.text(0.03, 0.97, stats_text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=props)
+    
+    # Enhanced styling
+    ax.set_title('Ankle Dorsiflexion/Plantarflexion Angle', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Angle (degrees)', fontsize=12)
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.legend(loc='lower right')
+    
+    # Add shaded regions to indicate dorsiflexion and plantarflexion
+    ax.fill_between(time_seconds, neutral_angle, angle_data, 
+                   where=(angle_data > neutral_angle), 
+                   color='green', alpha=0.2, label='Dorsiflexion')
+    ax.fill_between(time_seconds, angle_data, neutral_angle, 
+                   where=(angle_data < neutral_angle), 
+                   color='red', alpha=0.2, label='Plantarflexion')
     
     plt.tight_layout()
     return fig
@@ -83,6 +125,7 @@ def plot_orientation_data(df, imu_num=0, start_idx=0, end_idx=None):
     if not all(col in df.columns for col in orientation_columns):
         return None
     
+    # Create figure with improved styling
     fig, ax = plt.subplots(figsize=(10, 5))
     
     # Time array
@@ -90,16 +133,40 @@ def plot_orientation_data(df, imu_num=0, start_idx=0, end_idx=None):
     time_values = pd.to_datetime(df[time_col].iloc[start_idx:end_idx])
     time_seconds = [(t - time_values.iloc[0]).total_seconds() for t in time_values]
     
-    # Plot orientation data
-    ax.plot(time_seconds, df[f'imu{imu_num}_roll'].iloc[start_idx:end_idx], label='Roll')
-    ax.plot(time_seconds, df[f'imu{imu_num}_pitch'].iloc[start_idx:end_idx], label='Pitch')
-    ax.plot(time_seconds, df[f'imu{imu_num}_yaw'].iloc[start_idx:end_idx], label='Yaw')
+    # Plot orientation data with distinct colors and line styles
+    roll = df[f'imu{imu_num}_roll'].iloc[start_idx:end_idx]
+    pitch = df[f'imu{imu_num}_pitch'].iloc[start_idx:end_idx]
+    yaw = df[f'imu{imu_num}_yaw'].iloc[start_idx:end_idx]
     
-    ax.set_title(f'IMU {imu_num} Orientation')
-    ax.set_ylabel('Angle (degrees)')
-    ax.set_xlabel('Time (s)')
-    ax.grid(True)
-    ax.legend()
+    ax.plot(time_seconds, roll, label='Roll', color='#1f77b4', linewidth=2)
+    ax.plot(time_seconds, pitch, label='Pitch', color='#ff7f0e', linewidth=2, linestyle='--')
+    ax.plot(time_seconds, yaw, label='Yaw', color='#2ca02c', linewidth=2, linestyle='-.')
+    
+    # Add range indicators
+    roll_range = f"Range: {roll.min():.2f} to {roll.max():.2f}°"
+    pitch_range = f"Range: {pitch.min():.2f} to {pitch.max():.2f}°"
+    yaw_range = f"Range: {yaw.min():.2f} to {yaw.max():.2f}°"
+    
+    # Enhanced styling
+    ax.set_title(f'IMU {imu_num} Orientation Angles', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Angle (degrees)', fontsize=12)
+    ax.set_xlabel('Time (s)', fontsize=12)
+    
+    # Add a grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    # Create legend with additional info
+    legend_elements = [
+        plt.Line2D([0], [0], color='#1f77b4', lw=2, label=f'Roll: {roll_range}'),
+        plt.Line2D([0], [0], color='#ff7f0e', lw=2, linestyle='--', label=f'Pitch: {pitch_range}'),
+        plt.Line2D([0], [0], color='#2ca02c', lw=2, linestyle='-.', label=f'Yaw: {yaw_range}')
+    ]
+    ax.legend(handles=legend_elements, loc='best', fontsize=10)
+    
+    # Add overall timespan
+    timespan = time_values.iloc[-1] - time_values.iloc[0]
+    plt.figtext(0.5, 0.01, f"Timespan: {timespan.total_seconds():.2f} seconds", 
+                ha="center", fontsize=10, bbox={"facecolor":"#f0f0f0", "alpha":0.5, "pad":5})
     
     plt.tight_layout()
     return fig
@@ -108,7 +175,7 @@ def main():
     st.title("MobiSense Experiment Setup")
     
     # Create tabs for different sections
-    tab1, tab2, tab3 = st.tabs(["Data Upload & Experiment Setup", "View Experiments", "Data Visualization"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Data Upload & Experiment Setup", "View Experiments", "Data Visualization", "Gait Analytics"])
     
     with tab1:
         st.header("Create New Experiment")
@@ -433,7 +500,15 @@ def main():
                         # Data selection options
                         st.subheader("Visualization Options")
                         
-                        imu_selection = st.radio("Select IMU", [0, 1])
+                        # Create columns for options
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            imu_selection = st.radio("Select IMU", [0, 1])
+                        
+                        with col2:
+                            # Add view mode option
+                            view_mode = st.radio("View Mode", ["Dashboard", "Detailed"])
                         
                         sample_range = st.slider(
                             "Select Sample Range", 
@@ -442,27 +517,425 @@ def main():
                             value=(0, min(500, len(df)-1))
                         )
                         
-                        # Plot IMU data
-                        st.subheader(f"IMU {imu_selection} Data")
-                        imu_fig = plot_imu_data(df, imu_num=imu_selection, start_idx=sample_range[0], end_idx=sample_range[1])
-                        st.pyplot(imu_fig)
+                        # Create expandable sections for each visualization
+                        if view_mode == "Dashboard":
+                            # Dashboard layout - arrange plots in a grid
+                            st.subheader("Data Dashboard")
+                            
+                            # Create tabs for each IMU
+                            imu0_tab, imu1_tab, angles_tab = st.tabs(["IMU 0", "IMU 1", "Angles"])
+                            
+                            with imu0_tab:
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # Plot IMU0 acceleration/gyro data
+                                    st.subheader("IMU 0 Acceleration & Gyroscope")
+                                    imu0_fig = plot_imu_data(df, imu_num=0, start_idx=sample_range[0], end_idx=sample_range[1])
+                                    st.pyplot(imu0_fig)
+                                
+                                with col2:
+                                    # Plot IMU0 orientation data
+                                    orientation_columns_0 = ['imu0_roll', 'imu0_pitch', 'imu0_yaw']
+                                    if all(col in df.columns for col in orientation_columns_0):
+                                        st.subheader("IMU 0 Orientation")
+                                        orientation_fig_0 = plot_orientation_data(df, imu_num=0, start_idx=sample_range[0], end_idx=sample_range[1])
+                                        st.pyplot(orientation_fig_0)
+                                    else:
+                                        st.info("Orientation data not available for IMU 0")
+                            
+                            with imu1_tab:
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # Plot IMU1 acceleration/gyro data
+                                    st.subheader("IMU 1 Acceleration & Gyroscope")
+                                    imu1_fig = plot_imu_data(df, imu_num=1, start_idx=sample_range[0], end_idx=sample_range[1])
+                                    st.pyplot(imu1_fig)
+                                
+                                with col2:
+                                    # Plot IMU1 orientation data
+                                    orientation_columns_1 = ['imu1_roll', 'imu1_pitch', 'imu1_yaw']
+                                    if all(col in df.columns for col in orientation_columns_1):
+                                        st.subheader("IMU 1 Orientation")
+                                        orientation_fig_1 = plot_orientation_data(df, imu_num=1, start_idx=sample_range[0], end_idx=sample_range[1])
+                                        st.pyplot(orientation_fig_1)
+                                    else:
+                                        st.info("Orientation data not available for IMU 1")
+                            
+                            with angles_tab:
+                                # Plot dorsiflexion angle data if available
+                                if has_dorsiflexion_angle:
+                                    st.subheader("Dorsiflexion Angle")
+                                    angle_fig = plot_angle_data(df, start_idx=sample_range[0], end_idx=sample_range[1])
+                                    st.pyplot(angle_fig)
+                                else:
+                                    st.warning("No dorsiflexion angle data available in this dataset.")
                         
-                        # Plot orientation data (roll, pitch, yaw)
-                        orientation_columns = [f'imu{imu_selection}_roll', f'imu{imu_selection}_pitch', f'imu{imu_selection}_yaw']
-                        if all(col in df.columns for col in orientation_columns):
-                            st.subheader(f"IMU {imu_selection} Orientation (Roll, Pitch, Yaw)")
-                            orientation_fig = plot_orientation_data(df, imu_num=imu_selection, start_idx=sample_range[0], end_idx=sample_range[1])
-                            st.pyplot(orientation_fig)
-                        else:
-                            st.info(f"Orientation data (roll, pitch, yaw) not available for IMU {imu_selection}")
+                        else:  # Detailed view
+                            # Detailed view - show plots in expandable sections with full width
+                            
+                            # Plot IMU data
+                            with st.expander(f"IMU {imu_selection} Acceleration & Gyroscope Data", expanded=True):
+                                imu_fig = plot_imu_data(df, imu_num=imu_selection, start_idx=sample_range[0], end_idx=sample_range[1])
+                                st.pyplot(imu_fig, use_container_width=True)
+                            
+                            # Plot orientation data for selected IMU
+                            orientation_columns = [f'imu{imu_selection}_roll', f'imu{imu_selection}_pitch', f'imu{imu_selection}_yaw']
+                            if all(col in df.columns for col in orientation_columns):
+                                with st.expander(f"IMU {imu_selection} Orientation (Roll, Pitch, Yaw)", expanded=True):
+                                    orientation_fig = plot_orientation_data(df, imu_num=imu_selection, start_idx=sample_range[0], end_idx=sample_range[1])
+                                    st.pyplot(orientation_fig, use_container_width=True)
+                            else:
+                                st.info(f"Orientation data (roll, pitch, yaw) not available for IMU {imu_selection}")
+                            
+                            # Plot orientation data for the other IMU
+                            other_imu = 1 if imu_selection == 0 else 0
+                            orientation_columns_other = [f'imu{other_imu}_roll', f'imu{other_imu}_pitch', f'imu{other_imu}_yaw']
+                            if all(col in df.columns for col in orientation_columns_other):
+                                with st.expander(f"IMU {other_imu} Orientation (Roll, Pitch, Yaw)", expanded=False):
+                                    orientation_fig_other = plot_orientation_data(df, imu_num=other_imu, start_idx=sample_range[0], end_idx=sample_range[1])
+                                    st.pyplot(orientation_fig_other, use_container_width=True)
+                            
+                            # Plot angle data if available
+                            if has_dorsiflexion_angle:
+                                with st.expander("Dorsiflexion Angle Data", expanded=True):
+                                    angle_fig = plot_angle_data(df, start_idx=sample_range[0], end_idx=sample_range[1])
+                                    st.pyplot(angle_fig, use_container_width=True)
+                            else:
+                                st.warning("No dorsiflexion angle data available in this dataset.")
+                    else:
+                        st.error(f"Data file not found: {data_path}")
+            else:
+                st.info("No experiments found.")
+        else:
+            st.info("No experiments directory found.")
+
+    with tab4:
+        st.header("Gait Analytics Dashboard")
+        
+        if os.path.exists("experiments"):
+            experiment_files = [f for f in os.listdir("experiments") if f.endswith("_metadata.json")]
+            
+            if experiment_files:
+                # Create a selectbox to choose experiment
+                experiment_names = [f.replace("_metadata.json", "") for f in experiment_files]
+                selected_experiment = st.selectbox("Select Experiment", experiment_names, key="gait_experiment_select")
+                
+                if selected_experiment:
+                    metadata_path = f"experiments/{selected_experiment}_metadata.json"
+                    
+                    with open(metadata_path, 'r') as f:
+                        exp_data = json.load(f)
+                    
+                    data_path = exp_data["data_path"]
+                    
+                    if os.path.exists(data_path):
+                        # Load the data
+                        df = pd.read_csv(data_path)
                         
-                        # Plot angle data if available
-                        if has_dorsiflexion_angle:
-                            st.subheader("Dorsiflexion Angle Data")
-                            angle_fig = plot_angle_data(df, start_idx=sample_range[0], end_idx=sample_range[1])
-                            st.pyplot(angle_fig)
-                        else:
-                            st.warning("No dorsiflexion angle data available in this dataset.")
+                        # Initialize analyzers
+                        rom_analyzer = RangeOfMotionAnalyzer(sampling_rate=100.0)  # Assuming 100Hz sampling rate
+                        gait_analyzer = GaitAnalyzer(sampling_rate=100.0)
+                        
+                        # Display data statistics
+                        st.subheader("Gait Analysis Options")
+                        
+                        sample_range = st.slider(
+                            "Select Sample Range for Analysis", 
+                            min_value=0, 
+                            max_value=len(df)-1, 
+                            value=(0, min(3000, len(df)-1)),
+                            key="gait_sample_range"
+                        )
+                        
+                        selected_df = df.iloc[sample_range[0]:sample_range[1]]
+                        
+                        # Create dashboard layout
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            st.subheader("Gait Parameter Analysis")
+                            
+                            # 1. Calculate ankle angles
+                            with st.spinner("Calculating ankle angles..."):
+                                has_dorsiflexion_angle = 'dorsiflexion_angle' in selected_df.columns
+                                
+                                # Calculate ankle angles
+                                try:
+                                    angle_results = rom_analyzer.calculate_ankle_angles(selected_df)
+                                    angles_df = angle_results['angles']
+                                    rom_metrics = angle_results['metrics']
+                                    
+                                    # Create two columns for visualization
+                                    angle_col1, angle_col2 = st.columns(2)
+                                    
+                                    with angle_col1:
+                                        # Plot angle data
+                                        fig, ax = plt.subplots(figsize=(10, 5))
+                                        time_values = np.arange(len(angles_df)) / rom_analyzer.sampling_rate
+                                        
+                                        ax.plot(time_values, angles_df['sagittal_angle'], label='Dorsiflexion/Plantarflexion', 
+                                                color='#1f77b4', linewidth=2)
+                                        ax.plot(time_values, angles_df['frontal_angle'], label='Inversion/Eversion', 
+                                                color='#ff7f0e', linewidth=2, linestyle='--')
+                                        
+                                        ax.set_title('Ankle Joint Angles', fontsize=14, fontweight='bold')
+                                        ax.set_xlabel('Time (s)', fontsize=12)
+                                        ax.set_ylabel('Angle (degrees)', fontsize=12)
+                                        ax.grid(True, linestyle='--', alpha=0.7)
+                                        ax.legend(loc='best')
+                                        plt.tight_layout()
+                                        st.pyplot(fig)
+                                    
+                                    with angle_col2:
+                                        # Display ROM metrics
+                                        st.subheader("Range of Motion Metrics")
+                                        metric_df = pd.DataFrame(list(rom_metrics.items()), columns=['Metric', 'Value'])
+                                        
+                                        # Format and sort metrics
+                                        metric_df['Value'] = metric_df['Value'].map(lambda x: f"{x:.2f}°")
+                                        metric_df['Metric'] = metric_df['Metric'].map(lambda x: x.replace('_', ' ').title())
+                                        
+                                        # Create a styled dataframe
+                                        st.dataframe(
+                                            metric_df,
+                                            hide_index=True,
+                                            column_config={
+                                                "Metric": st.column_config.TextColumn("Parameter", width="large"),
+                                                "Value": st.column_config.TextColumn("Value", width="small")
+                                            }
+                                        )
+                                except Exception as e:
+                                    st.error(f"Error calculating ankle angles: {str(e)}")
+                            
+                            # 2. Detect gait events
+                            with st.spinner("Detecting gait events..."):
+                                try:
+                                    # Prepare acceleration data
+                                    shank_acc = selected_df[['imu0_acc_x', 'imu0_acc_y', 'imu0_acc_z']].values
+                                    foot_acc = selected_df[['imu1_acc_x', 'imu1_acc_y', 'imu1_acc_z']].values
+                                    
+                                    # Detect gait events
+                                    gait_events = gait_analyzer.detect_gait_events(shank_acc, foot_acc)
+                                    
+                                    # Calculate gait parameters if ankle angles are available
+                                    if 'angles_df' in locals():
+                                        gait_params = gait_analyzer.calculate_gait_parameters(gait_events, angles_df)
+                                        pathological_metrics = gait_analyzer.analyze_pathological_gait(angles_df, gait_events)
+                                        
+                                        # Create visualization for gait events
+                                        fig, ax = plt.subplots(figsize=(10, 5))
+                                        
+                                        # Plot acceleration data
+                                        acc_magnitude = np.linalg.norm(shank_acc, axis=1)
+                                        time_values = np.arange(len(acc_magnitude)) / gait_analyzer.sampling_rate
+                                        
+                                        ax.plot(time_values, acc_magnitude, label='Shank Acceleration', alpha=0.7)
+                                        
+                                        # Mark heel strikes and toe-offs
+                                        for hs in gait_events['heel_strikes']:
+                                            if hs < len(time_values):
+                                                ax.axvline(x=time_values[hs], color='red', linestyle='--', alpha=0.5)
+                                        
+                                        for to in gait_events['toe_offs']:
+                                            if to < len(time_values):
+                                                ax.axvline(x=time_values[to], color='green', linestyle=':', alpha=0.5)
+                                        
+                                        # Add legend elements for gait events
+                                        from matplotlib.lines import Line2D
+                                        legend_elements = [
+                                            Line2D([0], [0], color='red', linestyle='--', label='Heel Strike'),
+                                            Line2D([0], [0], color='green', linestyle=':', label='Toe Off')
+                                        ]
+                                        
+                                        ax.set_title('Gait Event Detection', fontsize=14, fontweight='bold')
+                                        ax.set_xlabel('Time (s)', fontsize=12)
+                                        ax.set_ylabel('Acceleration Magnitude (m/s²)', fontsize=12)
+                                        ax.grid(True, linestyle='--', alpha=0.7)
+                                        ax.legend(handles=legend_elements, loc='best')
+                                        
+                                        plt.tight_layout()
+                                        st.pyplot(fig)
+                                        
+                                        # Display gait cycle information
+                                        st.subheader("Gait Cycle Information")
+                                        st.write(f"Number of detected heel strikes: {len(gait_events['heel_strikes'])}")
+                                        st.write(f"Number of detected toe-offs: {len(gait_events['toe_offs'])}")
+                                    
+                                except Exception as e:
+                                    st.error(f"Error detecting gait events: {str(e)}")
+                        
+                        with col2:
+                            st.subheader("Gait Parameters")
+                            
+                            # Only display if we have calculated the parameters
+                            if 'gait_params' in locals() and 'pathological_metrics' in locals():
+                                # Combine all metrics
+                                all_metrics = {**gait_params, **pathological_metrics}
+                                
+                                # Create dataframe for metrics
+                                metrics_df = pd.DataFrame(list(all_metrics.items()), columns=['Parameter', 'Value'])
+                                
+                                # Format metrics
+                                metrics_df['Parameter'] = metrics_df['Parameter'].map(lambda x: x.replace('_', ' ').title())
+                                
+                                # Define styled metrics display
+                                st.dataframe(
+                                    metrics_df,
+                                    hide_index=True,
+                                    column_config={
+                                        "Parameter": st.column_config.TextColumn("Gait Parameter", width="large"),
+                                        "Value": st.column_config.NumberColumn("Value", format="%.2f")
+                                    }
+                                )
+                                
+                                # Calculate sprain risk metrics if we have angle data
+                                if 'angles_df' in locals():
+                                    try:
+                                        sprain_risk = rom_analyzer.calculate_sprain_risk_metrics(angles_df)
+                                        
+                                        # Create gauge charts for key metrics
+                                        st.subheader("Ankle Instability Risk Assessment")
+                                        
+                                        # Create 3 columns for gauges
+                                        gauge1, gauge2, gauge3 = st.columns(3)
+                                        
+                                        # Helper function to create a gauge chart
+                                        def create_gauge(value, title, min_val=0, max_val=100, danger_threshold=70, 
+                                                       warn_threshold=40, unit=""):
+                                            fig, ax = plt.subplots(figsize=(4, 3), subplot_kw={'polar': True})
+                                            
+                                            # Normalize value to 0-1 range
+                                            normalized = (max(min(value, max_val), min_val) - min_val) / (max_val - min_val)
+                                            
+                                            # Define color gradient
+                                            cmap = plt.cm.RdYlGn_r
+                                            color = cmap(normalized)
+                                            
+                                            # Plot background
+                                            ax.set_theta_direction(-1)
+                                            ax.set_theta_offset(np.pi/2)
+                                            
+                                            # Plot gauge
+                                            ax.set_rlim(0, 1)
+                                            ax.set_yticks([])
+                                            ax.set_xticks(np.linspace(0, 2*np.pi, 9)[:-1])
+                                            ax.set_xticklabels([])
+                                            
+                                            # Plot value
+                                            ax.bar(0, normalized, width=2*np.pi, color=color, alpha=0.7)
+                                            
+                                            # Add text in center
+                                            plt.text(0, 0, f"{value:.1f}{unit}", 
+                                                    ha='center', va='center', fontsize=16)
+                                            plt.text(0, -0.4, title, 
+                                                    ha='center', va='center', fontsize=12)
+                                            
+                                            plt.tight_layout()
+                                            return fig
+                                        
+                                        # Create gauges for key metrics
+                                        with gauge1:
+                                            max_inversion = sprain_risk['max_inversion_velocity']
+                                            fig = create_gauge(
+                                                max_inversion, 
+                                                "Max Inversion\nVelocity", 
+                                                min_val=0, 
+                                                max_val=400, 
+                                                danger_threshold=300, 
+                                                unit="°/s"
+                                            )
+                                            st.pyplot(fig)
+                                        
+                                        with gauge2:
+                                            stability = min(sprain_risk['stability_index'] * 5, 100)  # Scale for visualization
+                                            fig = create_gauge(
+                                                stability, 
+                                                "Stability Index", 
+                                                min_val=0, 
+                                                max_val=100, 
+                                                danger_threshold=70
+                                            )
+                                            st.pyplot(fig)
+                                            
+                                        with gauge3:
+                                            sudden_inversions = sprain_risk['sudden_inversion_count']
+                                            fig = create_gauge(
+                                                sudden_inversions, 
+                                                "Sudden Inversions", 
+                                                min_val=0, 
+                                                max_val=10, 
+                                                danger_threshold=5
+                                            )
+                                            st.pyplot(fig)
+                                        
+                                        # Show detailed sprain risk metrics
+                                        with st.expander("Detailed Sprain Risk Metrics"):
+                                            risk_df = pd.DataFrame(list(sprain_risk.items()), 
+                                                                 columns=['Metric', 'Value'])
+                                            risk_df['Metric'] = risk_df['Metric'].map(
+                                                lambda x: x.replace('_', ' ').title())
+                                            st.dataframe(risk_df, hide_index=True)
+                                            
+                                    except Exception as e:
+                                        st.error(f"Error calculating sprain risk: {str(e)}")
+                            else:
+                                st.info("Gait parameters will be displayed after angle calculation and gait event detection.")
+                            
+                            # Add a section for gait pattern classification
+                            st.subheader("Gait Pattern Analysis")
+                            
+                            # Check if we have the necessary data
+                            if 'gait_params' in locals() and 'angles_df' in locals():
+                                try:
+                                    # Create simple gait pattern classification
+                                    pattern_score = 0
+                                    pattern_indicators = []
+                                    
+                                    # Calculate stride regularity
+                                    if 'stride_time_variability' in gait_params:
+                                        if gait_params['stride_time_variability'] > 0.15:
+                                            pattern_score += 1
+                                            pattern_indicators.append("Irregular stride timing")
+                                    
+                                    # Check for abnormal inversion/eversion patterns
+                                    if 'inversion_variability' in pathological_metrics:
+                                        if pathological_metrics['inversion_variability'] > 5:
+                                            pattern_score += 1
+                                            pattern_indicators.append("Variable ankle inversion")
+                                    
+                                    # Check for early heel rise pattern
+                                    if 'early_heel_rise_ratio' in pathological_metrics:
+                                        if pathological_metrics['early_heel_rise_ratio'] > 0.2:
+                                            pattern_score += 1
+                                            pattern_indicators.append("Early heel rise detected")
+                                    
+                                    # Classify gait pattern
+                                    if pattern_score == 0:
+                                        pattern = "Normal gait pattern"
+                                        pattern_color = "green"
+                                    elif pattern_score == 1:
+                                        pattern = "Mild gait abnormality"
+                                        pattern_color = "#FFA500"  # Orange
+                                    else:
+                                        pattern = "Significant gait abnormality"
+                                        pattern_color = "red"
+                                    
+                                    # Display gait pattern classification with styling
+                                    st.markdown(f"<h3 style='color:{pattern_color}'>{pattern}</h3>", unsafe_allow_html=True)
+                                    
+                                    if pattern_indicators:
+                                        st.write("Indicators detected:")
+                                        for indicator in pattern_indicators:
+                                            st.markdown(f"- {indicator}")
+                                    else:
+                                        st.write("No specific gait abnormalities detected.")
+                                    
+                                except Exception as e:
+                                    st.error(f"Error in gait pattern analysis: {str(e)}")
+                            else:
+                                st.info("Gait pattern analysis requires gait parameters and angle data.")
                     else:
                         st.error(f"Data file not found: {data_path}")
             else:
