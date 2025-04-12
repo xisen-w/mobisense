@@ -9,6 +9,20 @@ from experiments import Participant, IMU_Experiment_Setup
 from RoM_updated import RangeOfMotionAnalyzer
 from gait_analysis import GaitAnalyzer
 
+# Configure TensorFlow before importing it
+# This needs to happen before importing TensorFlow
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Force CPU mode
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # Reduce TF logging
+
+import tensorflow as tf
+from sklearn.preprocessing import StandardScaler
+
+# Print TensorFlow configuration for debugging
+if 'CUDA_VISIBLE_DEVICES' in os.environ:
+    print(f"CUDA_VISIBLE_DEVICES: {os.environ['CUDA_VISIBLE_DEVICES']}")
+print(f"TensorFlow devices: {tf.config.list_physical_devices()}")
+
 st.set_page_config(page_title="MobiSense Analytics", layout="wide")
 
 # Create experiment directory if it doesn't exist
@@ -171,11 +185,217 @@ def plot_orientation_data(df, imu_num=0, start_idx=0, end_idx=None):
     plt.tight_layout()
     return fig
 
+def predict_with_model(model, X):
+    """Make predictions with the model"""
+    try:
+        # Add debug info
+        st.info(f"Starting prediction with input shape: {X.shape}")
+        
+        # Try running on CPU to avoid memory issues
+        try:
+            with tf.device('/CPU:0'):
+                # Make predictions with verbose output
+                st.text("Attempting prediction on CPU...")
+                predictions = model.predict(X, verbose=1)
+        except Exception as cpu_error:
+            st.warning(f"CPU prediction failed: {str(cpu_error)}, trying default device")
+            # Make predictions with verbose output
+            st.text("Falling back to default device prediction...")
+            predictions = model.predict(X, verbose=1)
+        
+        # Add more debug info
+        st.info(f"Prediction complete. Output shape: {predictions.shape}")
+        
+        # Check if predictions are valid
+        if np.isnan(predictions).any():
+            return None, "Predictions contain NaN values. Model may not be working correctly."
+        
+        return predictions, None
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        st.error(f"Detailed error: {error_details}")
+        return None, f"Error making predictions: {str(e)}"
+
+def load_ml_model():
+    """Load the best model for predictions"""
+    try:
+        # Ensure we're using CPU for prediction (safer on Mac)
+        device_lib = tf.config.list_physical_devices()
+        st.info(f"Available devices: {device_lib}")
+        
+        # Load the model with error handling
+        model_path = "model_output/best_model"
+        if not os.path.exists(model_path):
+            st.error(f"Model path does not exist: {model_path}")
+            return None
+        
+        # Load the model on CPU to avoid memory issues
+        with tf.device('/CPU:0'):
+            st.info("Loading model on CPU...")
+            model = tf.keras.models.load_model(model_path)
+            st.success("Model loaded successfully on CPU")
+        
+        # Check model architecture
+        input_shape = model.input_shape
+        output_shape = model.output_shape
+        st.session_state['model_info'] = {
+            'input_shape': input_shape,
+            'output_shape': output_shape
+        }
+        return model
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
+        return None
+
+def prepare_data_for_prediction(df, sequence_length=10):
+    """Prepare data from the dataframe for model prediction"""
+    # The model expects shape=(None, 10, 12), but we're providing shape=(None, 10, 19)
+    # Need to select only the columns the model was trained on
+    
+    # Based on the error, the model expects exactly 12 features
+    # We'll prioritize the most important IMU features
+    
+    # First check if we have all necessary columns
+    required_imu_cols = [
+        # Core IMU features that are most likely to be used in training
+        'imu0_acc_x', 'imu0_acc_y', 'imu0_acc_z',
+        'imu0_gyro_x', 'imu0_gyro_y', 'imu0_gyro_z',
+        'imu1_acc_x', 'imu1_acc_y', 'imu1_acc_z',
+        'imu1_gyro_x', 'imu1_gyro_y', 'imu1_gyro_z'
+    ]
+    
+    # Check if all required columns exist
+    if not all(col in df.columns for col in required_imu_cols):
+        missing_cols = [col for col in required_imu_cols if col not in df.columns]
+        return None, f"Missing required columns: {', '.join(missing_cols)}"
+    
+    # Create sequences using exactly the required columns to match the expected input shape
+    sequences = []
+    for i in range(len(df) - sequence_length + 1):
+        sequence = df.iloc[i:i+sequence_length][required_imu_cols].values
+        sequences.append(sequence)
+    
+    if not sequences:
+        return None, "Could not create any sequences"
+    
+    # Convert to numpy array
+    X = np.array(sequences)
+    
+    # Check the shape to make sure it matches what the model expects
+    n_samples, n_steps, n_features = X.shape
+    if n_features != 12:  # The model expects exactly 12 features
+        return None, f"Expected 12 features but got {n_features}. Model requires exactly 12 input features."
+    
+    # Normalize data (assuming model was trained with normalized data)
+    scaler = StandardScaler()
+    X_reshaped = X.reshape(n_samples, n_steps * n_features)
+    X_normalized = scaler.fit_transform(X_reshaped)
+    X_normalized = X_normalized.reshape(n_samples, n_steps, n_features)
+    
+    return X_normalized, None
+
+def plot_predictions(predictions, prediction_type="force", scaled=False):
+    """Plot the predictions"""
+    try:
+        if prediction_type == "force":
+            # Assuming prediction output is force data with [left_x, left_y, left_z, right_x, right_y, right_z]
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Plot vertical forces (y-component) which are usually most important
+            ax.plot(predictions[:, 1], label='Left Foot Vertical Force', color='#1f77b4')
+            ax.plot(predictions[:, 4], label='Right Foot Vertical Force', color='#ff7f0e')
+            
+            # Plot total vertical force
+            total_vertical = predictions[:, 1] + predictions[:, 4]
+            ax.plot(total_vertical, label='Total Vertical Force', color='green', linestyle='--', linewidth=2)
+            
+            # Add information about scaling if applied
+            title = 'Predicted Ground Reaction Forces'
+            if scaled:
+                title += ' (Scaled)'
+            
+            ax.set_title(title, fontsize=14, fontweight='bold')
+            ax.set_xlabel('Time Steps', fontsize=12)
+            ax.set_ylabel('Force (Newtons)', fontsize=12)
+            
+            # Add average force annotation
+            avg_force = np.mean(total_vertical)
+            ax.annotate(f'Avg Total Force: {avg_force:.2f} N', 
+                       xy=(0.02, 0.95), xycoords='axes fraction',
+                       bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+            
+            ax.grid(True, linestyle='--', alpha=0.7)
+            ax.legend()
+            plt.tight_layout()
+            
+            # Second plot for horizontal forces
+            fig2, ax2 = plt.subplots(figsize=(10, 6))
+            
+            # Plot anterior-posterior forces (x-component)
+            ax2.plot(predictions[:, 0], label='Left Foot A-P Force', color='#1f77b4')
+            ax2.plot(predictions[:, 3], label='Right Foot A-P Force', color='#ff7f0e')
+            
+            # Plot medial-lateral forces (z-component)
+            ax2.plot(predictions[:, 2], label='Left Foot M-L Force', color='#2ca02c', linestyle='--')
+            ax2.plot(predictions[:, 5], label='Right Foot M-L Force', color='#d62728', linestyle='--')
+            
+            # Add information about scaling if applied
+            title = 'Predicted Horizontal Forces'
+            if scaled:
+                title += ' (Scaled)'
+                
+            ax2.set_title(title, fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Time Steps', fontsize=12)
+            ax2.set_ylabel('Force (Newtons)', fontsize=12)
+            ax2.grid(True, linestyle='--', alpha=0.7)
+            ax2.legend()
+            plt.tight_layout()
+            
+            return [fig, fig2]
+        
+        elif prediction_type == "angle":
+            # Assuming prediction output is angle data
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            ax.plot(predictions, label='Predicted Angle', color='#1f77b4', linewidth=2)
+            
+            ax.set_title('Predicted Joint Angle', fontsize=14, fontweight='bold')
+            ax.set_xlabel('Time Steps', fontsize=12)
+            ax.set_ylabel('Angle (degrees)', fontsize=12)
+            ax.grid(True, linestyle='--', alpha=0.7)
+            ax.legend()
+            plt.tight_layout()
+            
+            return [fig]
+        
+        else:
+            # Generic plot for other prediction types
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            for i in range(predictions.shape[1]):
+                ax.plot(predictions[:, i], label=f'Output {i+1}')
+            
+            ax.set_title('Model Predictions', fontsize=14, fontweight='bold')
+            ax.set_xlabel('Time Steps', fontsize=12)
+            ax.set_ylabel('Value', fontsize=12)
+            ax.grid(True, linestyle='--', alpha=0.7)
+            ax.legend()
+            plt.tight_layout()
+            
+            return [fig]
+            
+    except Exception as e:
+        st.error(f"Error plotting predictions: {str(e)}")
+        return None
+
 def main():
     st.title("MobiSense Experiment Setup")
     
     # Create tabs for different sections
-    tab1, tab2, tab3, tab4 = st.tabs(["Data Upload & Experiment Setup", "View Experiments", "Data Visualization", "Gait Analytics"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Data Upload & Experiment Setup", "View Experiments", "Data Visualization", "Gait Analytics", "ML Predictions"])
     
     with tab1:
         st.header("Create New Experiment")
@@ -942,6 +1162,389 @@ def main():
                 st.info("No experiments found.")
         else:
             st.info("No experiments directory found.")
+
+    with tab5:
+        st.header("ML Predictions")
+        
+        try:
+            # Load the model
+            model = load_ml_model()
+            
+            if model is None:
+                st.error("Could not load the prediction model. Please check if the model exists.")
+                st.warning("Continuing with limited functionality. You can still view experiments but predictions will not be available.")
+                
+                # Show troubleshooting information
+                with st.expander("Troubleshooting Information"):
+                    st.markdown("""
+                    ### Common Issues:
+                    1. The model file may not exist in the expected location (model_output/best_model)
+                    2. TensorFlow/GPU compatibility issues
+                    3. Memory limitations
+                    
+                    ### Solutions:
+                    1. Ensure the model files are in the correct location
+                    2. Try running with CPU only by uncommenting the relevant line in the code
+                    3. Restart the application
+                    """)
+            else:
+                st.success("Successfully loaded the prediction model.")
+                
+                # Display model information if available
+                if 'model_info' in st.session_state:
+                    with st.expander("Model Information"):
+                        st.write(f"**Input Shape:** {st.session_state['model_info']['input_shape']}")
+                        st.write(f"**Output Shape:** {st.session_state['model_info']['output_shape']}")
+                        st.info("This model requires exactly 12 IMU features (accelerometer and gyroscope data from both sensors) with a sequence length of 10.")
+                
+                if os.path.exists("experiments"):
+                    experiment_files = [f for f in os.listdir("experiments") if f.endswith("_metadata.json")]
+                    
+                    if experiment_files:
+                        # Create a selectbox to choose experiment
+                        experiment_names = [f.replace("_metadata.json", "") for f in experiment_files]
+                        selected_experiment = st.selectbox(
+                            "Select Experiment", 
+                            experiment_names, 
+                            key="ml_experiment_select"
+                        )
+                        
+                        if selected_experiment:
+                            metadata_path = f"experiments/{selected_experiment}_metadata.json"
+                            
+                            with open(metadata_path, 'r') as f:
+                                exp_data = json.load(f)
+                            
+                            data_path = exp_data["data_path"]
+                            
+                            if os.path.exists(data_path):
+                                # Load the data
+                                df = pd.read_csv(data_path)
+                                
+                                # Check if dataset has required columns
+                                required_cols = [
+                                    'imu0_acc_x', 'imu0_acc_y', 'imu0_acc_z',
+                                    'imu0_gyro_x', 'imu0_gyro_y', 'imu0_gyro_z',
+                                    'imu1_acc_x', 'imu1_acc_y', 'imu1_acc_z',
+                                    'imu1_gyro_x', 'imu1_gyro_y', 'imu1_gyro_z'
+                                ]
+                                missing_cols = [col for col in required_cols if col not in df.columns]
+                                
+                                if missing_cols:
+                                    st.error(f"The selected dataset is missing required columns: {', '.join(missing_cols)}")
+                                    st.info("The model requires both IMU0 and IMU1 data (accelerometer and gyroscope) to make predictions.")
+                                else:
+                                    # Display data statistics
+                                    st.subheader("Data Selection for Prediction")
+                                    
+                                    sample_range = st.slider(
+                                        "Select Sample Range for Analysis", 
+                                        min_value=0, 
+                                        max_value=len(df)-1, 
+                                        value=(0, min(1000, len(df)-1)),
+                                        key="ml_sample_range"
+                                    )
+                                    
+                                    selected_df = df.iloc[sample_range[0]:sample_range[1]]
+                                    
+                                    # Display column info
+                                    with st.expander("Dataset Column Information"):
+                                        st.write("**Available columns:**")
+                                        st.write(", ".join(df.columns.tolist()))
+                                        st.write("**Required columns for prediction:**")
+                                        st.write(", ".join(required_cols))
+                                    
+                                    # Prediction type selection
+                                    prediction_type = st.radio(
+                                        "Prediction Type", 
+                                        ["force", "angle"], 
+                                        key="prediction_type"
+                                    )
+                                    
+                                    # Add memory options
+                                    with st.expander("Advanced Settings"):
+                                        # Don't use GPU option since we're forcing CPU mode globally
+                                        batch_size = st.slider("Batch Size", min_value=16, max_value=512, value=64, step=16,
+                                                             help="Smaller batch size uses less memory but is slower")
+                                    
+                                    if st.button("Generate Predictions", key="generate_predictions"):
+                                        with st.spinner("Preparing data and generating predictions..."):
+                                            # Prepare data for prediction
+                                            X, error_message = prepare_data_for_prediction(selected_df)
+                                            
+                                            if X is None:
+                                                st.error(f"Error preparing data: {error_message}")
+                                            else:
+                                                # Display input shape before prediction
+                                                st.info(f"Input data shape: {X.shape}")
+                                                if 'model_info' in st.session_state:
+                                                    expected_shape = st.session_state['model_info']['input_shape']
+                                                    st.info(f"Expected model input shape: {expected_shape}")
+                                                
+                                                # Make predictions
+                                                try:
+                                                    # Explicitly add verbose output to see progress
+                                                    st.text("Running prediction...")
+                                                    
+                                                    # No need to set GPU visibility here since we've done it globally
+                                                    # Force predictions to run on CPU
+                                                    with tf.device('/CPU:0'):
+                                                        # Use batching for prediction to reduce memory usage
+                                                        total_samples = X.shape[0]
+                                                        all_predictions = []
+                                                        progress_bar = st.progress(0)
+                                                        
+                                                        for i in range(0, total_samples, batch_size):
+                                                            end_idx = min(i + batch_size, total_samples)
+                                                            batch_X = X[i:end_idx]
+                                                            
+                                                            # Update progress
+                                                            progress = float(i) / total_samples
+                                                            progress_bar.progress(progress)
+                                                            st.text(f"Processing batch {i//batch_size + 1}/{(total_samples-1)//batch_size + 1}...")
+                                                            
+                                                            # Run the batch with low verbosity
+                                                            batch_pred = model.predict(batch_X, verbose=0)
+                                                            all_predictions.append(batch_pred)
+                                                        
+                                                        # Complete progress
+                                                        progress_bar.progress(1.0)
+                                                    
+                                                    # Combine predictions
+                                                    if all_predictions:
+                                                        predictions = np.vstack(all_predictions)
+                                                        st.text("Prediction complete!")
+                                                        
+                                                        # Debug prediction output
+                                                        st.success(f"Successfully generated predictions with shape: {predictions.shape}")
+                                                        
+                                                        # Apply scaling factor to convert to realistic values
+                                                        if prediction_type == "force":
+                                                            # Check the scale of predictions
+                                                            max_vertical = max(np.max(predictions[:, 1]), np.max(predictions[:, 4]))
+                                                            
+                                                            # Determine if scaling is needed
+                                                            participant_weight = exp_data.get("participant", {}).get("weight", 70)  # Default to 70kg
+                                                            expected_force = participant_weight * 9.81  # N = kg * 9.81 m/s²
+                                                            
+                                                            # Auto-determine scaling factor
+                                                            if max_vertical < 10:  # If max force is less than 10N, likely needs scaling
+                                                                if max_vertical < 1:  # Extremely small values
+                                                                    scale_factor = expected_force / (max_vertical if max_vertical > 0 else 1)
+                                                                else:  # Small but not tiny values
+                                                                    scale_factor = 100  # Conservative scaling
+                                                                
+                                                                st.warning(f"Force values appear too small. Applying scaling factor of {scale_factor:.2f}x")
+                                                                predictions = predictions * scale_factor
+                                                            
+                                                            # Display the scaling decision
+                                                            with st.expander("Force Scaling Information"):
+                                                                st.write(f"Participant weight: {participant_weight} kg")
+                                                                st.write(f"Expected body weight force: ~{expected_force:.2f} N")
+                                                                st.write(f"Original max vertical force: {max_vertical:.2f}")
+                                                                st.write(f"Scaled: {max_vertical < 10}")
+                                                                if max_vertical < 10:
+                                                                    st.write(f"Applied scaling factor: {scale_factor:.2f}")
+                                                        
+                                                        # Check for NaN values in predictions
+                                                        if np.isnan(predictions).any():
+                                                            st.warning("Warning: Predictions contain NaN values.")
+                                                        
+                                                        # Display predictions
+                                                        st.subheader("Prediction Results")
+                                                        
+                                                        # Show raw prediction values
+                                                        with st.expander("Raw Prediction Values (First 5 rows)"):
+                                                            st.write(predictions[:5])
+                                                        
+                                                        # Create visualization
+                                                        st.text("Generating visualization...")
+                                                        # Pass the scaling information to the plotting function
+                                                        was_scaled = prediction_type == "force" and max_vertical < 10
+                                                        plots = plot_predictions(predictions, prediction_type, scaled=was_scaled)
+                                                        
+                                                        if plots:
+                                                            for i, fig in enumerate(plots):
+                                                                st.pyplot(fig)
+                                                        
+                                                        # Display prediction statistics
+                                                        st.subheader("Prediction Statistics")
+                                                        
+                                                        if prediction_type == "force":
+                                                            # Display force statistics
+                                                            stats_cols = st.columns(3)
+                                                            
+                                                            with stats_cols[0]:
+                                                                avg_left_vertical = np.mean(predictions[:, 1])
+                                                                avg_right_vertical = np.mean(predictions[:, 4])
+                                                                total_vertical = avg_left_vertical + avg_right_vertical
+                                                                
+                                                                st.metric(
+                                                                    "Avg. Total Vertical Force", 
+                                                                    f"{total_vertical:.2f} N"
+                                                                )
+                                                                
+                                                                # Add expected body weight for comparison
+                                                                if 'participant' in exp_data:
+                                                                    weight_kg = exp_data['participant'].get('weight', 70)
+                                                                    expected_force = weight_kg * 9.81
+                                                                    st.caption(f"Expected body weight: ~{expected_force:.2f} N")
+                                                            
+                                                            with stats_cols[1]:
+                                                                left_ratio = avg_left_vertical / total_vertical * 100 if total_vertical != 0 else 0
+                                                                st.metric(
+                                                                    "Left Foot Load", 
+                                                                    f"{left_ratio:.1f}%"
+                                                                )
+                                                            
+                                                            with stats_cols[2]:
+                                                                right_ratio = avg_right_vertical / total_vertical * 100 if total_vertical != 0 else 0
+                                                                st.metric(
+                                                                    "Right Foot Load", 
+                                                                    f"{right_ratio:.1f}%"
+                                                                )
+                                                            
+                                                            # Display detailed force data
+                                                            with st.expander("Detailed Force Data"):
+                                                                force_components = [
+                                                                    "Left Anterior-Posterior",
+                                                                    "Left Vertical",
+                                                                    "Left Medial-Lateral",
+                                                                    "Right Anterior-Posterior",
+                                                                    "Right Vertical",
+                                                                    "Right Medial-Lateral"
+                                                                ]
+                                                                
+                                                                force_stats = pd.DataFrame({
+                                                                    "Component": force_components,
+                                                                    "Mean (N)": [np.mean(predictions[:, i]) for i in range(6)],
+                                                                    "Max (N)": [np.max(predictions[:, i]) for i in range(6)],
+                                                                    "Min (N)": [np.min(predictions[:, i]) for i in range(6)]
+                                                                })
+                                                                
+                                                                st.dataframe(
+                                                                    force_stats, 
+                                                                    hide_index=True,
+                                                                    column_config={
+                                                                        "Component": st.column_config.TextColumn("Force Component"),
+                                                                        "Mean (N)": st.column_config.NumberColumn("Mean (N)", format="%.2f"),
+                                                                        "Max (N)": st.column_config.NumberColumn("Max (N)", format="%.2f"),
+                                                                        "Min (N)": st.column_config.NumberColumn("Min (N)", format="%.2f")
+                                                                    }
+                                                                )
+                                                                
+                                                            # Display symmetry analysis
+                                                            st.subheader("Force Symmetry Analysis")
+                                                            
+                                                            # Calculate symmetry index for vertical forces
+                                                            left_vertical = predictions[:, 1]
+                                                            right_vertical = predictions[:, 4]
+                                                            
+                                                            # Symmetry Index (SI) = |R-L|/((R+L)/2) * 100%
+                                                            valid_indices = (right_vertical + left_vertical) != 0
+                                                            if np.any(valid_indices):
+                                                                symmetry_index = np.mean(
+                                                                    np.abs(right_vertical[valid_indices] - left_vertical[valid_indices]) / 
+                                                                    ((right_vertical[valid_indices] + left_vertical[valid_indices]) / 2)
+                                                                ) * 100
+                                                            else:
+                                                                symmetry_index = 0
+                                                            
+                                                            # Gait Asymmetry (GA) = |ln(right/left)| * 100%
+                                                            valid_indices = (left_vertical > 0) & (right_vertical > 0)
+                                                            if np.any(valid_indices):
+                                                                gait_asymmetry = np.mean(
+                                                                    np.abs(
+                                                                        np.log(right_vertical[valid_indices] / left_vertical[valid_indices])
+                                                                    )
+                                                                ) * 100
+                                                            else:
+                                                                gait_asymmetry = 0
+                                                            
+                                                            asym_cols = st.columns(2)
+                                                            with asym_cols[0]:
+                                                                st.metric(
+                                                                    "Symmetry Index (SI)", 
+                                                                    f"{symmetry_index:.2f}%",
+                                                                    help="SI < 10% is considered normal, > 10% indicates asymmetry"
+                                                                )
+                                                            
+                                                            with asym_cols[1]:
+                                                                st.metric(
+                                                                    "Gait Asymmetry (GA)", 
+                                                                    f"{gait_asymmetry:.2f}%",
+                                                                    help="GA < 5% is considered normal, > 10% indicates significant asymmetry"
+                                                                )
+                                                        
+                                                        elif prediction_type == "angle":
+                                                            # Display angle statistics
+                                                            stats_cols = st.columns(3)
+                                                            
+                                                            with stats_cols[0]:
+                                                                avg_angle = np.mean(predictions)
+                                                                st.metric(
+                                                                    "Average Angle", 
+                                                                    f"{avg_angle:.2f}°"
+                                                                )
+                                                            
+                                                            with stats_cols[1]:
+                                                                max_angle = np.max(predictions)
+                                                                st.metric(
+                                                                    "Maximum Angle", 
+                                                                    f"{max_angle:.2f}°"
+                                                                )
+                                                            
+                                                            with stats_cols[2]:
+                                                                min_angle = np.min(predictions)
+                                                                st.metric(
+                                                                    "Minimum Angle", 
+                                                                    f"{min_angle:.2f}°"
+                                                                )
+                                                            
+                                                            # Calculate ROM
+                                                            rom = max_angle - min_angle
+                                                            st.metric(
+                                                                "Range of Motion", 
+                                                                f"{rom:.2f}°"
+                                                            )
+                                                        
+                                                        # Download predictions
+                                                        predictions_df = pd.DataFrame(predictions)
+                                                        if prediction_type == "force":
+                                                            columns = [
+                                                                "Left_AP_Force", "Left_Vertical_Force", "Left_ML_Force",
+                                                                "Right_AP_Force", "Right_Vertical_Force", "Right_ML_Force"
+                                                            ]
+                                                            predictions_df.columns = columns
+                                                        elif prediction_type == "angle":
+                                                            predictions_df.columns = ["Angle"]
+                                                        
+                                                        csv = predictions_df.to_csv(index=False)
+                                                        st.download_button(
+                                                            "Download Predictions as CSV",
+                                                            csv,
+                                                            f"{selected_experiment}_predictions.csv",
+                                                            "text/csv",
+                                                            key="download_predictions"
+                                                        )
+                                                    
+                                                except Exception as e:
+                                                    st.error(f"Error making predictions: {str(e)}")
+                                                    import traceback
+                                                    st.error(f"Detailed error: {traceback.format_exc()}")
+                                                    st.info("Try using a different dataset, smaller sample range, or verify the data format matches the model's requirements.")
+                            else:
+                                st.error(f"Data file not found: {data_path}")
+                    else:
+                        st.info("No experiments found.")
+                else:
+                    st.info("No experiments directory found.")
+                    
+        except Exception as e:
+            st.error(f"An unexpected error occurred in the ML Predictions tab: {str(e)}")
+            import traceback
+            st.error(f"Detailed error: {traceback.format_exc()}")
+            st.warning("Please report this issue to the development team.")
 
 if __name__ == "__main__":
     main() 

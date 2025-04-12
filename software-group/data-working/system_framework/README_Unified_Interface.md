@@ -11,15 +11,17 @@ The MobiSense Unified Interface provides researchers and clinicians with a user-
 3. Managing participant information and experiment metadata
 4. Analyzing and comparing experiment results
 5. Performing detailed gait and biomechanical analysis
+6. Generating ML-based predictions for forces and angles
 
 ## System Architecture
 
-The interface consists of four main components:
+The interface consists of five main components:
 
 1. **Data Upload & Experiment Setup**: For registering new experiments with participant data
 2. **Experiment Viewer**: For reviewing registered experiments and their metadata
 3. **Data Visualization**: For interactive visualization of IMU and angle data
 4. **Gait Analytics**: For comprehensive gait analysis and biomechanical assessment
+5. **ML Predictions**: For generating ground reaction force and joint angle predictions using machine learning
 
 ## Features
 
@@ -73,6 +75,26 @@ The interface consists of four main components:
   - Inversion/eversion assessment
   - Sprain risk analysis based on ankle kinematics
   - Gait abnormality scoring and identification
+
+### ML Predictions
+
+- Machine learning model integration for predicting biomechanical variables:
+  - Ground reaction forces prediction from IMU data
+  - Joint angle prediction from sensor data
+- Interactive prediction features:
+  - Sample range selection for targeted prediction
+  - Prediction type selection (force or angle)
+  - Visualization of predicted values
+  - Statistical summaries of predictions
+- Clinical insights for force predictions:
+  - Total vertical force and load distribution
+  - Left/right foot load percentages
+  - Force component analysis (vertical, anterior-posterior, medial-lateral)
+  - Symmetry analysis using established clinical metrics
+- Comprehensive result export:
+  - Downloadable CSV of prediction results
+  - Visualization of predicted force or angle patterns
+  - Force symmetry metrics (Symmetry Index and Gait Asymmetry)
 
 ## Data Structure
 
@@ -139,6 +161,7 @@ If you prefer to set up manually:
 5. **View Experiment**: Navigate to the View Experiments tab to see your registered experiment
 6. **Visualize Data**: Use the Data Visualization tab to explore the sensor data
 7. **Analyze Gait**: Use the Gait Analytics tab to perform detailed gait analysis
+8. **Generate Predictions**: Use the ML Predictions tab to predict forces or angles
 
 ## Analytics Modules
 
@@ -169,6 +192,18 @@ The sprain risk assessment functionality provides:
 - Sudden inversion event detection
 - Visual risk representation using gauge charts
 
+### ML Prediction Module
+
+The machine learning prediction module leverages deep learning models to predict important biomechanical variables:
+
+- **Force Prediction**: Estimates ground reaction forces (GRF) in three dimensions for both feet
+- **Angle Prediction**: Predicts joint angles based on IMU sensor data
+- **Data Processing**: Automatically prepares sequential IMU data for prediction
+- **Symmetry Analysis**: Calculates clinically relevant symmetry metrics:
+  - Symmetry Index (SI): Quantifies the percentage difference between right and left forces
+  - Gait Asymmetry (GA): Logarithmic ratio of right to left forces for clinical assessment
+- **Prediction Export**: Allows downloading of prediction results for further analysis
+
 ## Working with the Analytics Dashboard
 
 The Gait Analytics dashboard is designed for clinical assessment and research:
@@ -180,12 +215,25 @@ The Gait Analytics dashboard is designed for clinical assessment and research:
 5. **Risk Assessment**: Examine the risk gauges for ankle instability indicators
 6. **Pattern Analysis**: Review the gait pattern classification for potential abnormalities
 
+## Working with the ML Predictions
+
+The ML Predictions tab offers decision support through machine learning:
+
+1. **Model Loading**: The system automatically loads the pre-trained best model
+2. **Data Selection**: Choose an experiment and select a sample range for prediction
+3. **Prediction Type**: Select between force prediction or angle prediction
+4. **Generate Predictions**: Process the selected data through the model to generate predictions
+5. **Results Analysis**: Review prediction visualizations and derived statistics
+6. **Symmetry Assessment**: For force predictions, examine left-right symmetry metrics
+7. **Export Results**: Download prediction results for documentation or further analysis
+
 ## File Organization
 
 - `streamlit_app.py`: Main Streamlit application
 - `experiments.py`: Classes for experiment and participant management
 - `RoM.py` and `RoM_updated.py`: Range of motion calculation modules
 - `gait_analysis.py`: Gait parameter calculation and analysis module
+- `model_output/best_model/`: Directory containing the trained machine learning model
 - `setup.sh`: Setup script for environment preparation
 - `run_app.sh`: Script to run the application
 - `experiments/`: Directory where experiment data and metadata are stored
@@ -206,9 +254,29 @@ When using the Gait Analytics dashboard, consider these guidelines:
 - **Risk Factors**: Max inversion velocity >200°/s or stability index >50 may indicate increased sprain risk.
 - **Pattern Classification**: The system categorizes gait as normal, mildly abnormal, or significantly abnormal based on a composite score of metrics.
 
+## Interpretation of ML Predictions
+
+When using the ML Predictions tab, consider these guidelines:
+
+- **Force Predictions**: 
+  - Normal vertical ground reaction force should approximately equal body weight
+  - Left-right load distribution should be approximately 50:50 in healthy gait
+  - Symmetry Index (SI) < 10% is considered normal
+  - Gait Asymmetry (GA) < 5% is considered normal
+  - Anterior-posterior forces typically range from 20-25% of body weight
+
+- **Angle Predictions**:
+  - Predicted angles should fall within physiological ranges
+  - Compare predicted ROM with directly measured values for validation
+  - Angle predictions can help identify potential gait abnormalities
+
 ## Technical Notes
 
 - The analytics modules use a default sampling rate of 100Hz. If your data uses a different rate, adjust the initialization parameters.
 - Gait event detection works best with walking or running data; standing or irregular movements may cause false detections.
 - The system prefers to use direct angle measurements when available but can calculate them from IMU data when necessary.
-- For best results, place IMU 0 on the shank and IMU 1 on the foot. 
+- For best results, place IMU 0 on the shank and IMU 1 on the foot.
+- The ML prediction model works best with time-series data of sufficient length (minimum 10 frames)
+- The model uses a sequence-to-prediction approach and works with standardized input data
+- For accurate force predictions, the model requires data from both sensors (foot and shank)
+- The prediction model was trained on datasets with standardized biomechanical representations 
