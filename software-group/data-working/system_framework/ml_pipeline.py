@@ -167,7 +167,7 @@ class BaseModel(ABC):
         """Build the model architecture"""
         pass
     
-    def apply_physics_loss(self, mse_scale, vertical_scale=None, horizontal_scale=None, smoothness_scale=None):
+    def apply_physics_loss(self, mse_scale, vertical_scale=None, horizontal_scale=None, smoothness_scale=None, lambda_phys=None, participant_weight_kg=None):
         """Apply normalized physics loss to the model
         
         Args:
@@ -175,19 +175,26 @@ class BaseModel(ABC):
             vertical_scale: Scale factor for vertical constraint (V).
             horizontal_scale: Scale factor for horizontal constraint (H).
             smoothness_scale: Scale factor for smoothness constraint (S).
+            lambda_phys: Weight for the physics loss component.
+            participant_weight_kg: Participant weight for vertical force calculation.
         """
         if self.model is None:
             raise ValueError("Model must be built before applying physics loss")
+
+        # Determine final lambda_phys and weight
+        # Priority: Passed argument > self.config value > Default in create_normalized_physics_loss
+        final_lambda_phys = lambda_phys if lambda_phys is not None else self.config.physics_weight
+        final_weight_kg = participant_weight_kg if participant_weight_kg is not None else self.config.participant_weight_kg
 
         # Prepare arguments for create_normalized_physics_loss
         # Only pass scale factors if they are explicitly provided (not None)
         loss_args = {
             'mse_scale': mse_scale,
-            'alpha': 0.57,
+            'alpha': 0.57, # Keep these hardcoded for now unless configurable
             'beta': 0.29,
             'gamma': 0.14,
-            'lambda_phys': self.config.physics_weight,
-            'participant_weight_kg': self.config.participant_weight_kg
+            'lambda_phys': final_lambda_phys, # Use determined value
+            'participant_weight_kg': final_weight_kg # Use determined value
         }
         if vertical_scale is not None:
             loss_args['vertical_scale'] = vertical_scale
@@ -196,7 +203,7 @@ class BaseModel(ABC):
         if smoothness_scale is not None:
             loss_args['smoothness_scale'] = smoothness_scale
         
-        # Create the normalized physics loss function and associated metrics using defaults if scales are not provided
+        # Create the normalized physics loss function and associated metrics
         loss_fn, custom_metrics = create_normalized_physics_loss(**loss_args)
         
         # Store the loss function and metrics for later use
@@ -207,7 +214,7 @@ class BaseModel(ABC):
         optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=self.config.learning_rate) # Use legacy Adam for M1/M2 compatibility
         self.model.compile(optimizer=optimizer, loss=loss_fn, metrics=['mae'] + custom_metrics)
         
-        print(f"Applied normalized physics loss (MSE Scale={mse_scale:.4f}, λ_phys={self.config.physics_weight})")
+        print(f"Applied normalized physics loss (MSE Scale={mse_scale:.4f}, λ_phys={final_lambda_phys:.4f}, Weight={final_weight_kg}kg)")
         # Also print the names of the metrics being tracked
         metric_names = [m.__name__ for m in custom_metrics]
         print(f"Tracking metrics: ['mae', {', '.join(metric_names)}]")
@@ -226,13 +233,6 @@ class BaseModel(ABC):
                 factor=0.5,
                 patience=10,
                 min_lr=0.00001
-            ),
-            tf.keras.callbacks.ModelCheckpoint(
-                # Save best model uniquely for this class instance run
-                filepath=f'model_output/{self.__class__.__name__}/best_model_{self.__class__.__name__}',
-                monitor='val_loss',
-                save_best_only=True,
-                save_weights_only=False # Save entire model
             )
         ]
         
@@ -248,35 +248,38 @@ class BaseModel(ABC):
         return self.history.history
     
     def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> Dict[str, float]:
-        """Evaluate the model"""
-        # Load the best weights saved during training for evaluation
-        best_model_path = f'model_output/{self.__class__.__name__}/best_model_{self.__class__.__name__}'
-        if os.path.exists(best_model_path):
-             print(f"Loading best weights from {best_model_path} for evaluation.")
-             # Load the entire best model
-             self.model = tf.keras.models.load_model(best_model_path, compile=False)
-             # Re-compile if necessary (needed if custom objects like loss are used)
-             if hasattr(self, 'custom_loss') or hasattr(self, 'custom_physics_loss'):
-                 print("Re-compiling model with custom loss/optimizer for evaluation.")
-                 optimizer = self.model.optimizer # Reuse optimizer if possible or re-instantiate
-                 loss_func = getattr(self, 'custom_loss', getattr(self, 'custom_physics_loss', 'mse'))
-                 self.model.compile(optimizer=optimizer, loss=loss_func, metrics=['mae'])
-             else:
-                 self.model.compile(loss='mse', metrics=['mae']) # Default compile
-        else:
-             print(f"Warning: Best model checkpoint not found at {best_model_path}. Evaluating with final weights.")
+        """Evaluate the model using its current weights."""
+        if self.model is None:
+             print(f"Warning: Model for {self.__class__.__name__} is None. Cannot evaluate.")
+             return {"Error": "Model is None"}
 
+        print(f"Evaluating model {self.__class__.__name__} with its current weights.")
         predictions = self.model.predict(X_test)
         # evaluate_predictions now only handles force prediction
+        # Ensure y_test and predictions have compatible shapes before evaluation
+        if y_test.shape[0] != predictions.shape[0]:
+            min_rows = min(y_test.shape[0], predictions.shape[0])
+            print(f"Warning: Mismatch in test samples vs predictions ({y_test.shape[0]} vs {predictions.shape[0]}). Truncating to {min_rows}.")
+            y_test = y_test[:min_rows]
+            predictions = predictions[:min_rows]
+            
+        if y_test.shape[0] == 0:
+             print("Warning: No samples left after potential truncation. Cannot evaluate.")
+             return {"Error": "No samples for evaluation"}
+             
         self.metrics = evaluate_predictions(y_test, predictions, self.config.participant_weight_kg)
         return self.metrics
     
     def save_model(self, path: str):
         """Save the final model (not necessarily the best performing one)."""
-        final_model_path = f"{path}_final" # Distinguish from best model
-        os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+        # Use the provided path directly
+        final_model_path = path # <<< FIX: No "_final" appended here
+        # Ensure the base directory exists
+        base_dir = os.path.dirname(final_model_path)
+        if base_dir: # Check if dirname returned something (it might be empty if path is just a filename)
+             os.makedirs(base_dir, exist_ok=True)
         self.model.save(final_model_path)
-        print(f"Saved final model weights to {final_model_path}")
+        print(f"Saved final model to {final_model_path}") # Updated print statement
     
     def load_model(self, path: str):
         """Load a specific model file."""
@@ -293,7 +296,9 @@ class SimpleDenseModel(BaseModel):
         x = tf.keras.layers.Dropout(0.2)(x)
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 class LSTMModel(BaseModel):
     """LSTM-based model"""
@@ -305,7 +310,9 @@ class LSTMModel(BaseModel):
         x = tf.keras.layers.Dropout(0.2)(x)
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 class BidirectionalLSTMModel(BaseModel):
     """Bidirectional LSTM model"""
@@ -317,7 +324,9 @@ class BidirectionalLSTMModel(BaseModel):
         x = tf.keras.layers.Dropout(0.2)(x)
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 class CNNLSTMModel(BaseModel):
     """Combined CNN and LSTM model"""
@@ -342,7 +351,9 @@ class CNNLSTMModel(BaseModel):
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
         
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 class TransformerModel(BaseModel):
     """Transformer-based model"""
@@ -370,7 +381,9 @@ class TransformerModel(BaseModel):
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
         
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 
 class HybridTransformerPhysics(BaseModel):
@@ -535,7 +548,9 @@ class MultiScaleTransformer(BaseModel):
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
         
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 class CrossModalAttentionTransformer(BaseModel):
     """Transformer with cross-modal attention and uncertainty estimation"""
@@ -602,7 +617,9 @@ class CrossModalAttentionTransformer(BaseModel):
         x = tf.keras.layers.Dense(32, activation='relu')(x)
         outputs = tf.keras.layers.Dense(output_shape)(x)
         
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+        self.model = model
+        return model
 
 class BiLSTMAttentionModel(BaseModel):
     def build_model(self, input_shape, output_dim):
@@ -634,6 +651,7 @@ class BiLSTMAttentionModel(BaseModel):
         model = tf.keras.Model(inputs=x_in, outputs=out, name="BiLSTMAttention")
         print(f"Built BiLSTMAttentionModel.")
         model.summary() # Print model summary
+        self.model = model
         return model
 
 class CNNBiLSTMSqueezeExcitationModel(BaseModel):
@@ -670,272 +688,286 @@ class CNNBiLSTMSqueezeExcitationModel(BaseModel):
         model = tf.keras.Model(inputs=x_in, outputs=out, name="CNNBiLSTMSqueezeExcitation")
         print(f"Built CNNBiLSTMSqueezeExcitationModel.") # RENAMED Print Statement
         model.summary() # Print model summary
+        self.model = model
         return model
 
 class MLPipeline:
-    """Main pipeline for model training and evaluation for GRF Estimation."""
-    def __init__(self, config: ModelConfig):
-        self.config = config
-        # Create output directory and subdirectories for each model
-        os.makedirs('model_output', exist_ok=True)
-        model_names = ['SimpleDense', 'LSTM', 'BidirectionalLSTM', 'CNNLSTM', 'Transformer',
-                       'PhysicsConstrained', 'HybridTransformerPhysics', 'MultiScaleTransformer',
-                       'CrossModalAttentionTransformer', 'BiLSTMAttention', 'CNNBiLSTMSqueezeExcitation']
-        for model_name in model_names:
-            os.makedirs(f'model_output/{model_name}', exist_ok=True)
-        self.models = {
-            'SimpleDense': SimpleDenseModel(config),
-            'LSTM': LSTMModel(config),
-            'BidirectionalLSTM': BidirectionalLSTMModel(config),
-            'CNNLSTM': CNNLSTMModel(config),
-            'Transformer': TransformerModel(config),
-            'HybridTransformerPhysics': HybridTransformerPhysics(config),
-            'MultiScaleTransformer': MultiScaleTransformer(config),
-            'CrossModalAttentionTransformer': CrossModalAttentionTransformer(config),
-            'BiLSTMAttention': BiLSTMAttentionModel(config),
-            'CNNBiLSTMSqueezeExcitation': CNNBiLSTMSqueezeExcitationModel(config)
-        }
-        self.results = {}
-    
-    def prepare_data(self, data_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
-        """Prepare and split data for GRF Estimation. Returns scaled data and MSE scale factor."""
-        # Load and prepare sequences for GRF prediction
-        X, y = load_and_prepare_sequences(data_path, self.config.sequence_length)
+    """Manages the training, evaluation, and results saving process."""
 
+    def __init__(self, config: ModelConfig):
+        """
+        Initializes the pipeline with configuration and sets up models.
+        """
+        self.config = config
+        self.models_to_run = {
+            "SimpleDense": SimpleDenseModel(config),
+            "LSTM": LSTMModel(config),
+            "BidirectionalLSTM": BidirectionalLSTMModel(config),
+            "CNNLSTM": CNNLSTMModel(config),
+            "Transformer": TransformerModel(config),
+            "MultiScaleTransformer": MultiScaleTransformer(config),
+            "CrossModalAttentionTransformer": CrossModalAttentionTransformer(config),
+            "BiLSTMAttention": BiLSTMAttentionModel(config),
+            "CNNBiLSTMSqueezeExcitation": CNNBiLSTMSqueezeExcitationModel(config)
+        }
+        self.results = {} # Stores history and final metrics
+        # Generate a unique run ID for this pipeline instance
+        self.run_id = f"run_GRF_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.scaler_path = None # Will be set in prepare_data
+
+        # Ensure output directory exists
+        os.makedirs("model_output", exist_ok=True)
+        print(f"Pipeline Initialized. Run ID: {self.run_id}")
+
+    def prepare_data(self, data_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]:
+        """
+        Loads, preprocesses, splits, scales, and saves scalers for the data.
+        Returns train/val/test splits and the path to the saved scaler file.
+        """
+        print("\n--- Preparing Data ---")
+        # Load data using the updated function
+        X, y = load_and_prepare_sequences(data_path, sequence_length=self.config.sequence_length)
         if X is None or y is None:
-            print("Error: Data loading and preparation failed. Cannot proceed.")
-            return None, None, None, None, None # Return None tuple including MSE scale
-        
-        # --- Calculate MSE Scale Factor on raw 'y' before splitting/augmentation ---
-        if y.ndim == 2 and y.shape[0] > 1 and y.shape[1] > 0:
-            # Calculate variance across samples for each feature, then mean variance
-            mse_scale = np.mean(np.var(y, axis=0))
-            if mse_scale < 1e-6: # Avoid division by zero or tiny numbers
-                print(f"Warning: Calculated MSE scale factor is very small ({mse_scale:.2e}). Setting to 1.0.")
-                mse_scale = 1.0
-            else:
-                print(f"Calculated MSE scale factor (Mean Target Variance): {mse_scale:.4f}")
-        else:
-            print("Warning: Could not calculate MSE scale factor from y shape {y.shape}. Defaulting to 1.0.")
-            mse_scale = 1.0
-        # ---------------------------------------------------------------------
-            
-        # Augment data
-        X_aug, y_aug = augment_data(X, y)
+            raise ValueError("Failed to load or prepare sequences from data file.")
         
         # Split data
+        print("Splitting data...")
+        X_temp, X_test, y_temp, y_test = train_test_split(
+            X, y, test_size=self.config.validation_split, random_state=self.config.random_state
+        )
+        # Split temp into train and validation
         X_train, X_val, y_train, y_val = train_test_split(
-            X_aug, y_aug,
-            test_size=self.config.validation_split,
+            X_temp, y_temp, test_size=self.config.validation_split / (1.0 - self.config.validation_split),
             random_state=self.config.random_state
         )
+        print(f"Data split complete:")
+        print(f"  Train: X={X_train.shape}, y={y_train.shape}")
+        print(f"  Val:   X={X_val.shape}, y={y_val.shape}")
+        print(f"  Test:  X={X_test.shape}, y={y_test.shape}")
         
-        # Scale data - Fit scaler only on training data
-        # Pass y_train *unscaled* to standardize_data if needed, but we scale y_train here
-        scaler_X = StandardScaler()
-        scaler_y = StandardScaler()
-        
-        # Fit scalers ONLY on the training partition
-        # Reshape X_train for scaler
-        samples_train, timesteps_train, features_train = X_train.shape
-        X_train_reshaped = X_train.reshape(-1, features_train)
-        scaler_X.fit(X_train_reshaped)
-        
-        # Fit y scaler on y_train
-        scaler_y.fit(y_train) 
-        
-        # Transform training data
-        X_train_scaled_reshaped = scaler_X.transform(X_train_reshaped)
-        X_train_scaled = X_train_scaled_reshaped.reshape(samples_train, timesteps_train, features_train)
-        y_train_scaled = scaler_y.transform(y_train)
-        
-        # Transform validation data using the *same* fitted scalers
-        samples_val, timesteps_val, features_val = X_val.shape
-        X_val_reshaped = X_val.reshape(-1, features_val)
-        X_val_scaled_reshaped = scaler_X.transform(X_val_reshaped)
-        X_val_scaled = X_val_scaled_reshaped.reshape(samples_val, timesteps_val, features_val)
-        y_val_scaled = scaler_y.transform(y_val)
+        # Standardize data and save scalers
+        print("Standardizing data and saving scalers...")
+        X_train_scaled, y_train_scaled, scaler_X, scaler_y = standardize_data(X_train, y_train, fit=True)
+        X_val_scaled, y_val_scaled, _, _ = standardize_data(X_val, y_val, fit=False, scaler_X=scaler_X, scaler_y=scaler_y)
+        X_test_scaled, y_test_scaled, _, _ = standardize_data(X_test, y_test, fit=False, scaler_X=scaler_X, scaler_y=scaler_y)
 
-        # Save scalers
-        with open('scaler_X.joblib', 'wb') as f: joblib.dump(scaler_X, f)
-        with open('scaler_y.joblib', 'wb') as f: joblib.dump(scaler_y, f)
-        
-        return X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled, mse_scale
+        # Define scaler filename using run_id
+        scaler_filename = os.path.join('model_output', f'scalers_{self.run_id}.joblib')
+        self.scaler_path = scaler_filename # Store the path used
+
+        try:
+            joblib.dump({'scaler_X': scaler_X, 'scaler_y': scaler_y}, scaler_filename)
+            print(f"Scalers saved successfully to: {scaler_filename}")
+        except Exception as e:
+            print(f"Error saving scalers to {scaler_filename}: {e}")
+            # Decide how to handle this - maybe raise error or just warn
+            raise IOError(f"Failed to save scalers: {e}")
+
+        # Return scaled data splits and the scaler path
+        return X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled, X_test_scaled, y_test_scaled, scaler_filename
     
     def train_and_evaluate(self, data_path: str):
-        """Train and evaluate all models for GRF Estimation."""
-        # Prepare data
-        X_train, y_train, X_val, y_val, mse_scale = self.prepare_data(data_path)
-        
-        if X_train is None: # Handle potential error from prepare_data
-             print("Data preparation failed. Halting training.")
-             return
+        """
+        Trains and evaluates all models defined in the pipeline.
+        Handles two-stage training (MSE pre-training, Physics fine-tuning).
+        """
+        # Prepare data and get the scaler path used
+        X_train, y_train, X_val, y_val, X_test, y_test, actual_scaler_path = self.prepare_data(data_path)
+        # Ensure the pipeline's config reflects the actual scaler path used
+        self.scaler_path = actual_scaler_path
+        print(f"Using scaler path for this run: {self.scaler_path}")
 
-        # Train and evaluate each model
-        for name, model_instance in self.models.items():
-            print(f"\n--- Training {name} model ---")
-            
+        input_shape = (X_train.shape[1], X_train.shape[2])
+        output_shape = y_train.shape[1]
+
+        all_histories = {} # Store histories separately initially
+
+        print("\n--- Stage 1: Pre-training with MSE Loss ---")
+        stage1_weights_paths = {}
+        for name, model_instance in self.models_to_run.items():
+            print(f"\n--- Training {name} (Stage 1: MSE) ---")
             try:
-                # Build and compile model
-                # Input shape: (sequence_length, num_features=12)
-                # Output shape: num_force_components=6
-                model_instance.model = model_instance.build_model(X_train.shape[1:], y_train.shape[1])
+                # Ensure model is built with correct shapes
+                model_instance.build_model(input_shape, output_shape)
+                # Compile with standard MSE for pre-training
+                model_instance.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=self.config.learning_rate), loss='mse', metrics=['mae'])
 
-                # --- STAGE 2: Load best weights from Stage 1 --- 
-                model_class_name = model_instance.__class__.__name__
-                # Correct path assuming models were saved in subdirectories like 'model_output/SimpleDenseModel/'
-                best_model_path_stage1 = f'model_output/{model_class_name}/best_model_{model_class_name}' 
-                if os.path.exists(best_model_path_stage1):
-                    try:
-                        print(f"--- STAGE 2: Loading weights from {best_model_path_stage1} for fine-tuning {name} ---")
-                        # Use load_weights which is generally safer for fine-tuning the same architecture
-                        model_instance.model.load_weights(best_model_path_stage1)
-                    except Exception as load_err:
-                        print(f"!!! Warning: Failed to load weights from {best_model_path_stage1}: {load_err}")
-                        print("Proceeding with initial weights.")
-                else:
-                    print(f"--- STAGE 2: Warning: Weights file not found at {best_model_path_stage1}. Proceeding with initial weights for {name}. ---")
-                # ------------------------------------------------
+                history = model_instance.train(X_train, y_train, X_val, y_val) # Use train method without physics
+                all_histories[f"{name}_stage1"] = history # Store stage 1 history
 
-                # Apply normalized physics loss to all models (except HybridTransformerPhysics which handles it internally)
-                if not isinstance(model_instance, HybridTransformerPhysics):
-                    # Make sure the model is compiled with basic MSE first if needed
-                    if not hasattr(model_instance.model, 'optimizer') or model_instance.model.optimizer is None:
-                        print(f"Compiling {name} with default MSE before applying physics loss.")
-                        model_instance.model.compile(
-                            optimizer=tf.keras.optimizers.Adam(learning_rate=self.config.learning_rate),
-                            loss='mse',
-                            metrics=['mae']
-                        )
-                    # Apply the normalized physics loss with pre-computed scale factors
-                    model_instance.apply_physics_loss(
-                        mse_scale=mse_scale # Only pass MSE scale, let others use defaults
-                    )
-                else:
-                     # HybridTransformerPhysics now also needs the mse_scale
-                     # We assume it's already built and compiled once in its build_model
-                     # We just need to re-apply the loss with the correct mse_scale
-                     print(f"Applying physics loss with correct MSE scale to {name}.")
-                     model_instance.apply_physics_loss(mse_scale=mse_scale)
-                
-                print(f"Input shape for training: {X_train.shape}")
-                print(f"Target shape for training: {y_train.shape}")
-                print(f"Model input shape expected: {model_instance.model.input_shape}")
-                print(f"Model output shape expected: {model_instance.model.output_shape}")
-            
-                # Train model
-                history = model_instance.train(X_train, y_train, X_val, y_val)
-            
-                # Evaluate model (loads best weights internally)
-                metrics = model_instance.evaluate(X_val, y_val)
-            
-                # Store results
-                self.results[name] = {
-                    'history': history,
-                    'metrics': metrics
-                }
-            
-                # Save the final model state
-                model_instance.save_model(f'model_output/{name}')
-
-                # Add final validation metrics to results
-                self._add_final_val_metrics_to_results(model_instance, name)
+                # Save weights after stage 1
+                stage1_weights_dir = os.path.join('model_output', f"{name}_stage1_weights_{self.run_id}")
+                os.makedirs(stage1_weights_dir, exist_ok=True)
+                stage1_weights_path = os.path.join(stage1_weights_dir, f"stage1_weights.weights.h5")
+                model_instance.model.save_weights(stage1_weights_path)
+                stage1_weights_paths[name] = stage1_weights_path
+                print(f"Saved Stage 1 weights for {name} to {stage1_weights_path}")
 
             except Exception as e:
-                print(f"!!! Error training/evaluating model {name}: {e}")
+                print(f"ERROR during Stage 1 training for {name}: {e}")
                 import traceback
                 traceback.print_exc()
-                # Store error information
-                self.results[name] = {'error': str(e)}
-                # Save scalers even if training failed, might be useful
-                if 'scaler_X' in locals() and 'scaler_y' in locals():
-                    save_scalers(scaler_X, scaler_y, 'model_output')
-        
-        # After loop, save all collected results
-        self.save_results_to_json()
-        
-        # Return the final results dictionary
-        return self.results
-    
-    def _add_final_val_metrics_to_results(self, model_instance, model_name):
-        """Helper to add final validation metrics from history to results."""
-        if hasattr(model_instance, 'history') and model_instance.history:
-            history = model_instance.history.history
-            if model_name not in self.results:
-                self.results[model_name] = {}
-            
-            # Add final validation values of custom metrics from history
-            # Ensure we check if metrics exist in history and get the last value
-            for metric_base_name in ['norm_mse', 'norm_vert', 'norm_horiz', 'norm_smooth', 'mae', 'loss']:
-                metric_key = f'val_{metric_base_name}'
-                if metric_key in history and history[metric_key]:
-                    self.results[model_name][f'final_{metric_key}'] = history[metric_key][-1]
-                else:
-                    # Set to None if metric wasn't found or history is empty
-                    self.results[model_name][f'final_{metric_key}'] = None 
-                    print(f"Warning: Metric '{metric_key}' not found in history for {model_name}.")
-        else:
-            print(f"Warning: No history found for model {model_name}, cannot add final validation metrics.")
+                self.results[name] = {"Error": f"Stage 1 training failed: {e}"}
 
+        print("\n--- Stage 2: Fine-tuning with Physics-Informed Loss ---")
+        for name, model_instance in self.models_to_run.items():
+            if name not in self.results: # Only proceed if Stage 1 was successful
+                print(f"\n--- Training {name} (Stage 2: Physics Fine-tuning) ---")
+                try:
+                    # Load Stage 1 weights
+                    if name in stage1_weights_paths:
+                        print(f"Loading Stage 1 weights from {stage1_weights_paths[name]}")
+                        # Re-build model to ensure fresh state before loading weights
+                        model_instance.build_model(input_shape, output_shape)
+                        model_instance.model.load_weights(stage1_weights_paths[name])
+                    else:
+                        print(f"Warning: Stage 1 weights path not found for {name}. Skipping fine-tuning.")
+                        continue
+
+                    # Apply and compile with physics loss for fine-tuning
+                    # The scales are now passed from the create_normalized_physics_loss function defaults
+                    print(f"Applying physics loss with lambda_phys = {self.config.physics_weight}")
+                    model_instance.apply_physics_loss(
+                        mse_scale=1.0, # Assuming mse_scale is 1.0 unless specified otherwise
+                        lambda_phys=self.config.physics_weight, # Pass lambda_phys correctly
+                        participant_weight_kg=self.config.participant_weight_kg
+                    )
+                    # Note: apply_physics_loss now handles compiling internally
+
+                    # Fine-tune the model
+                    history = model_instance.train(X_train, y_train, X_val, y_val)
+                    all_histories[f"{name}_stage2"] = history # Store stage 2 history
+
+                    # Combine histories (optional, can be complex if metrics change)
+                    # For simplicity, we'll store both histories and final eval metrics
+                    self.results[name] = {
+                        'history_stage1': self._convert_numpy_to_native(all_histories.get(f"{name}_stage1")),
+                        'history_stage2': self._convert_numpy_to_native(history),
+                        'final_evaluation': None # Placeholder, will be filled after evaluation
+                    }
+
+                    # Evaluate model on test set AFTER fine-tuning
+                    print(f"Evaluating {name} on test set...")
+                    final_metrics = model_instance.evaluate(X_test, y_test)
+                    self.results[name]['final_evaluation'] = self._convert_numpy_to_native(final_metrics)
+
+                    # Add final validation metrics from history for convenience
+                    self._add_final_val_metrics_to_results(model_instance, name)
+
+                    # Save the FINAL model (architecture + fine-tuned weights) to a RUN-SPECIFIC path
+                    final_model_dir = os.path.join('model_output', f"{name}_final_{self.run_id}") # Use run_id in path
+                    print(f"Saving final model (architecture + Stage 2 weights) for {name} to {final_model_dir}")
+                    model_instance.save_model(final_model_dir) # Saves in SavedModel format
+
+                except Exception as e:
+                    print(f"ERROR during Stage 2 training or evaluation for {name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Update result entry even if stage 2 failed partially
+                    if name not in self.results: self.results[name] = {}
+                    self.results[name]["Error"] = f"Stage 2 failed: {e}"
+                    # Store any history collected before the error
+                    if f"{name}_stage1" in all_histories:
+                        self.results[name]['history_stage1'] = self._convert_numpy_to_native(all_histories.get(f"{name}_stage1"))
+                    if f"{name}_stage2" in all_histories and 'history' in locals(): # If history exists before crash
+                        self.results[name]['history_stage2'] = self._convert_numpy_to_native(history)
+
+        print("\n--- Model Training and Evaluation Complete ---")
+
+    def _add_final_val_metrics_to_results(self, model_instance, model_name):
+        """Helper to extract final validation metrics from the history."""
+        if self.results[model_name] and 'history_stage2' in self.results[model_name] and self.results[model_name]['history_stage2']:
+             history = self.results[model_name]['history_stage2']
+             final_val_metrics = {}
+             for metric, values in history.items():
+                 if metric.startswith('val_') and values: # Check if it's a validation metric and not empty
+                     final_val_metrics[metric] = values[-1] # Get the last value
+             if final_val_metrics:
+                 if 'final_evaluation' not in self.results[model_name] or not self.results[model_name]['final_evaluation']:
+                     self.results[model_name]['final_evaluation'] = {} # Ensure dict exists
+                 self.results[model_name]['final_evaluation'].update(final_val_metrics)
+                 print(f"Added final validation metrics for {model_name}: {final_val_metrics}")
+    
     def _convert_numpy_to_native(self, obj):
-        """Recursively convert numpy types to native Python types for JSON serialization."""
+        """Recursively converts numpy types in nested structures to native Python types for JSON serialization."""
         if isinstance(obj, dict):
-            return {key: self._convert_numpy_to_native(value) for key, value in obj.items()}
+            return {k: self._convert_numpy_to_native(v) for k, v in obj.items()}
         elif isinstance(obj, list):
-            return [self._convert_numpy_to_native(item) for item in obj]
-        elif isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
+            return [self._convert_numpy_to_native(elem) for elem in obj]
+        elif isinstance(obj, np.integer):
             return int(obj)
-        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
-            # Handle potential NaN or Inf values before converting to float
-            if np.isnan(obj):
-                return None # Represent NaN as null in JSON
-            elif np.isinf(obj):
-                # Represent infinity as a large number or string, depending on needs
-                return str(obj) # e.g., "inf" or "-inf"
+        elif isinstance(obj, np.floating):
+            # Handle NaN/Inf specifically
+            if np.isnan(obj): return None # Represent NaN as null in JSON
+            if np.isinf(obj): return str(obj) # Represent Inf as '+inf' or '-inf' string
             return float(obj)
-        elif isinstance(obj, (np.ndarray,)):
-            # Convert arrays to lists
-            return self._convert_numpy_to_native(obj.tolist())
-        elif isinstance(obj, np.bool_):
-            return bool(obj)
-        elif isinstance(obj, np.void): # Handle void types if they appear
-             return None
-        return obj # Return object unchanged if not a numpy type or list/dict
+        elif isinstance(obj, np.ndarray):
+            return self._convert_numpy_to_native(obj.tolist()) # Convert arrays to lists
+        # Handle potential None values gracefully
+        elif obj is None:
+            return None
+        # Assume other types are already serializable
+            return obj
 
     def save_results_to_json(self, filename: str = None):
-        """Saves the collected results to a JSON file."""
-        if not self.results:
-            print("No results to save.")
-            return
-
-        # Generate default filename if none provided
+        """
+        Saves the collected results (histories, final metrics) and configuration to a JSON file.
+        """
         if filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"model_output/model_comparison_results_{timestamp}.json"
-            print(f"Generated default filename: {filename}")
+            # Generate a default filename using the run_id
+            filename = os.path.join('model_output', f'model_comparison_results_{self.run_id}.json')
+            print(f"No filename provided, using default: {filename}")
 
-        # Create output directory if it doesn't exist
-        try:
-            output_dir = os.path.dirname(filename) if os.path.dirname(filename) else '.'
-            os.makedirs(output_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Error creating directory for {filename}: {e}")
-            # Attempt to save in the current directory as a fallback
-            filename = os.path.basename(filename)
-            print(f"Attempting to save in current directory as {filename}")
+        # Ensure the output directory exists
+        output_dir = os.path.dirname(filename)
+        if output_dir and not os.path.exists(output_dir):
+            try:
+                os.makedirs(output_dir)
+                print(f"Created output directory: {output_dir}")
+            except OSError as e:
+                print(f"Error creating directory {output_dir}: {e}. Results might not be saved.")
+                return # Or raise error
 
-        # Convert numpy types in results to native python types for JSON compatibility
-        serializable_results = self._convert_numpy_to_native(self.results)
+        # Prepare data for saving: Add config block
+        data_to_save = {}
+
+        # Add configuration block
+        data_to_save['config'] = {
+            'run_id': self.run_id,
+            'sequence_length': self.config.sequence_length,
+            'epochs': self.config.epochs,
+            'batch_size': self.config.batch_size,
+            'learning_rate': self.config.learning_rate,
+            'participant_weight_kg': self.config.participant_weight_kg,
+            'validation_split': self.config.validation_split,
+            'physics_weight': self.config.physics_weight, # lambda_phys used in Stage 2
+            'warmup_epochs': self.config.warmup_epochs,
+            'scaler_path': self.scaler_path # The actual path used
+            # Add other relevant config parameters if needed
+        }
+
+        # Add model results (already converted to native types where possible)
+        # Re-convert just before saving to be absolutely sure
+        data_to_save['model_results'] = self._convert_numpy_to_native(self.results)
 
         try:
             with open(filename, 'w') as f:
-                json.dump(serializable_results, f, indent=2)
-            print(f"Successfully saved results to {filename}")
+                # Use default=str as a fallback for any non-serializable types not caught
+                json.dump(data_to_save, f, indent=2, default=str)
+            print(f"Results successfully saved to {filename}")
         except TypeError as e:
-            print(f"Error saving results to JSON due to TypeError: {e}")
-            print("There might be non-serializable types remaining in the results.")
-        except Exception as e:
             print(f"Error saving results to JSON: {e}")
+            print("Attempting to save with more robust NaN/Inf handling...")
+            # If dump fails, could be due to NaN/Inf not handled by default=str
+            # The _convert_numpy_to_native should handle this now, but as a fallback:
+            try:
+                with open(filename.replace('.json', '_fallback.json'), 'w') as f:
+                    json.dump(data_to_save, f, indent=2, allow_nan=False, default=lambda x: str(x) if isinstance(x, (np.floating, float)) and (np.isnan(x) or np.isinf(x)) else None)
+                print(f"Fallback save successful (check {filename.replace('.json', '_fallback.json')})")
+            except Exception as e_fallback:
+                print(f"Fallback JSON save also failed: {e_fallback}")
+        except Exception as e:
+            print(f"An unexpected error occurred during JSON saving: {e}")
 
 # --- Helper Functions ---
 
@@ -1013,18 +1045,18 @@ def load_and_prepare_sequences(file_path, sequence_length=10):
     except Exception as e:
         print(f"Error calculating force threshold: {e}. Using default threshold 1.0 N")
         force_threshold = 1.0
-        
+
     # Create sequences with overlap
     sequences = []
     targets = []
     stride = 1
-    
+
     # Track sequence count
     total_potential_sequences = len(df) - sequence_length + 1 if len(df) >= sequence_length else 0
     filtered_sequences = 0
     nan_skipped_sequences = 0
-    
-    for i in range(0, len(df) - sequence_length, stride):
+
+    for i in range(0, len(df) - sequence_length + 1, stride):
         seq = df[imu_features].iloc[i:i+sequence_length].values
         target = df[force_targets].iloc[i+sequence_length-1].values
 
@@ -1039,7 +1071,7 @@ def load_and_prepare_sequences(file_path, sequence_length=10):
             sequences.append(seq)
             targets.append(target)
             filtered_sequences += 1
-    
+
     if not sequences:
         print("Error: No valid sequences generated after filtering. Check data quality or force threshold.")
         return None, None
@@ -1047,10 +1079,10 @@ def load_and_prepare_sequences(file_path, sequence_length=10):
     print(f"Total potential sequences: {total_potential_sequences}")
     print(f"Sequences skipped due to NaN: {nan_skipped_sequences}")
     print(f"Sequences after filtering (stance phase): {filtered_sequences}")
-    
+
     X = np.array(sequences)
     y = np.array(targets)
-    
+
     print(f"Processed dataset shape - X: {X.shape}, y: {y.shape}")
     if X.size == 0 or y.size == 0:
         print("Error: Resulting X or y array is empty after processing.")
@@ -1073,17 +1105,17 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
     if len(X) == 0:
         print("Warning: Input X to augment_data is empty. Returning empty arrays.")
         return np.array(augmented_X), np.array(augmented_y)
-    
+
     for i in range(len(X)):
         original_seq = X[i]
         original_target = y[i]
-        
+
         # Always keep the original sequence
         augmented_X.append(original_seq)
         augmented_y.append(original_target)
-        
+
         channel_stds = np.std(original_seq, axis=0)
-        
+
         # 1. Gaussian noise
         for _ in range(noise_reps):
             adaptive_noise = np.random.normal(
@@ -1094,7 +1126,7 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
             noisy_seq = original_seq + adaptive_noise
             augmented_X.append(noisy_seq)
             augmented_y.append(original_target)
-        
+
         # 2. Time warping
         L = original_seq.shape[0]
         orig_steps = np.arange(L)
@@ -1104,7 +1136,7 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
             new_steps[0] = 0
             new_steps[-1] = L-1
             new_steps = np.sort(new_steps)
-            
+
             warped_seq = np.zeros_like(original_seq)
             for j in range(original_seq.shape[1]):
                 if np.all(original_seq[:, j] == original_seq[0, j]):
@@ -1119,7 +1151,7 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
                         warped_seq[:, j] = f(new_steps)
             augmented_X.append(warped_seq)
             augmented_y.append(original_target)
-        
+
         # 3. Channel masking
         for _ in range(mask_reps):
             masked_seq = original_seq.copy()
@@ -1129,14 +1161,14 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
                 size=num_channels_to_mask, 
                 replace=False
             )
-            
+
             if L > 1:
                 mask_length = np.random.randint(max(1, L // 5), max(2, L // 2))
                 mask_start = np.random.randint(0, max(1, L - mask_length))
             else:
                 mask_length = 0
                 mask_start = 0
-            
+
             if mask_length > 0:
                 for channel in channels_to_mask:
                     if np.random.random() < 0.5:
@@ -1147,7 +1179,7 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
                         )
             augmented_X.append(masked_seq)
             augmented_y.append(original_target)
-        
+
         # 4. Magnitude scaling
         for _ in range(scale_reps):
             scaled_seq = original_seq.copy()
@@ -1156,13 +1188,13 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
                 scaled_seq[:, j] = original_seq[:, j] * scale_factor
             augmented_X.append(scaled_seq)
             augmented_y.append(original_target)
-        
+
         # 5. Permutation of segments
         for _ in range(permute_reps):
             permuted_seq = original_seq.copy()
             num_segments = np.random.randint(2, 5)
             min_segment_size = max(1, L // 10)
-            
+
             if L >= num_segments * min_segment_size and L > 1:
                 try:
                     split_indices = np.sort(np.random.choice(
@@ -1178,7 +1210,7 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
                     permuted_seq = original_seq.copy()
             augmented_X.append(permuted_seq)
             augmented_y.append(original_target)
-        
+
         # 6. Signal mixing
         if len(X) > 1:
             for _ in range(mix_reps):
@@ -1188,10 +1220,10 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
                 mixed_seq = alpha * original_seq + (1 - alpha) * other_seq
                 augmented_X.append(mixed_seq)
                 augmented_y.append(original_target)
-    
+
     augmented_X = np.array(augmented_X)
     augmented_y = np.array(augmented_y)
-    
+
     if len(X) > 0 and len(augmented_X) > 0:
         print(f"Original dataset: {X.shape}, Augmented dataset: {augmented_X.shape}")
         print(f"Augmentation factor: {len(augmented_X) / len(X):.2f}x")
@@ -1199,7 +1231,7 @@ def augment_data(X, y, noise_reps=3, warp_reps=3, mask_reps=2, scale_reps=2,
         print("Augmentation skipped: Input X was empty.")
     else:
         print("Warning: Augmentation resulted in an empty dataset.")
-    
+
     return augmented_X, augmented_y
 
 # --- Standardization Function ---
@@ -1261,13 +1293,13 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
 
     # Calculate body weight force
     body_weight_force = participant_weight_kg * 9.81
-    
+
     # Component names for better reporting (matching problem def: x, y, z)
     components = [
         'Left Foot X', 'Left Foot Y', 'Left Foot Z',
         'Right Foot X', 'Right Foot Y', 'Right Foot Z'
     ]
-    
+
     # Calculate metrics for each component
     component_metrics = {}
     for i, name in enumerate(components):
@@ -1280,7 +1312,7 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
         else:
             mae = np.mean(np.abs(y_true[:, i] - y_pred[:, i]))
             rmse = np.sqrt(np.mean((y_true[:, i] - y_pred[:, i])**2))
-            
+
             # Calculate relative error (as percentage)
             mask = np.abs(y_true[:, i]) > 1.0 # Threshold to avoid division by near-zero
             if np.sum(mask) > 0:
@@ -1294,13 +1326,13 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
                     mre = np.nan
             else:
                 mre = np.nan # Not enough data points above threshold
-        
+
         component_metrics[name] = {
             'MAE (N)': float(mae) if not np.isnan(mae) else None,
             'RMSE (N)': float(rmse) if not np.isnan(rmse) else None,
             'MRE (%)': float(mre) if not np.isnan(mre) else None
         }
-    
+
     # Calculate vertical force constraint metrics (Y component is index 1 and 4)
     # Check for NaNs before calculating totals
     if np.isnan(y_true[:, 1]).any() or np.isnan(y_true[:, 4]).any() or \
@@ -1315,7 +1347,7 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
         total_vertical_pred = np.mean(y_pred[:, 1] + y_pred[:, 4])
         vertical_force_error_n = np.abs(total_vertical_pred - body_weight_force)
         vertical_force_error_pct = (vertical_force_error_n / body_weight_force * 100) if body_weight_force > 1e-6 else np.nan
-    
+
     vertical_metrics = {
         'True Total Vertical Force (N)': float(total_vertical_true) if not np.isnan(total_vertical_true) else None,
         'Predicted Total Vertical Force (N)': float(total_vertical_pred) if not np.isnan(total_vertical_pred) else None,
@@ -1323,7 +1355,7 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
         'Vertical Force Error (N)': float(vertical_force_error_n) if not np.isnan(vertical_force_error_n) else None,
         'Vertical Force Error (%)': float(vertical_force_error_pct) if not np.isnan(vertical_force_error_pct) else None
     }
-    
+
     # Overall metrics
     if np.isnan(y_true).any() or np.isnan(y_pred).any():
         print("Warning: NaN values found in overall arrays. Overall metrics might be inaccurate or NaN.")
@@ -1332,7 +1364,7 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
     else:
         overall_mae = np.mean(np.abs(y_true - y_pred))
         overall_rmse = np.sqrt(np.mean((y_true - y_pred)**2))
-    
+
     metrics = {
         'Overall': {
             'MAE (N)': float(overall_mae) if not np.isnan(overall_mae) else None,
@@ -1341,7 +1373,7 @@ def evaluate_predictions(y_true, y_pred, participant_weight_kg=70):
         'Components': component_metrics,
         'Physics': vertical_metrics
     }
-    
+
     return metrics
 
 
@@ -1350,35 +1382,24 @@ def main():
     """
     Main function to execute the ML pipeline exclusively for GRF Estimation.
     """
-    # Configuration for GRF Estimation
+    # Configuration for GRF Estimation - UPDATED
     config = ModelConfig(
-        sequence_length=10, 
-        epochs=50, # Consider reducing epochs for faster testing initially
-        batch_size=32, # Slightly larger batch size might be okay
+        sequence_length=50,
+        epochs=20, # UPDATED from 30
+        batch_size=32,
         learning_rate=0.001,
-        participant_weight_kg=70, # Example weight - should ideally come from data or config
+        participant_weight_kg=70,
         validation_split=0.2,
-        physics_weight=0.1,
+        physics_weight=0.2, # <<< REVERTED back to 0.2 from 0.8
         warmup_epochs=5
-        # target_type removed
     )
-    
-    # Create timestamp for this experiment run
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Experiment name clearly indicates it's for force prediction
-    experiment_name = f"run_GRF_{timestamp}"
-    
-    print(f"--- Starting GRF Estimation Experiment: {experiment_name} ---")
-    
-    # Create pipeline
+
+    # Create pipeline (run_id is generated inside __init__)
     pipeline = MLPipeline(config)
+    print(f"--- Starting GRF Estimation Experiment: {pipeline.run_id} ---")
     
-    # --- IMPORTANT: Update this path to your actual GRF dataset ---
-    # This path should contain 'ground_force_left_x', 'ground_force_left_y', etc. columns
-    # AND the 12 required IMU columns (imu0_acc_..., imu0_gyro_..., imu1_acc_..., imu1_gyro_...)
+    # --- IMPORTANT: Update this path to your actual GRF dataset ---\
     data_path = '/Users/wangxiang/Desktop/my_workspace/mobisense/software-group/data-working/assets/mar12exp/synced_IMU_forces_grf_fixed.csv'
-    # Example placeholder for testing (replace with a real file path):
-    # data_path = 'software-group/data-working/assets/placeholder_grf_data.csv'
     # --------------------------------------------------------------
 
     print(f"Using data path: {data_path}")
@@ -1401,13 +1422,15 @@ def main():
         print("Pipeline halted.")
         return
 
-    # Save the results to a JSON file named after the experiment
-    results_filename = os.path.join('model_output', f'model_comparison_results_{experiment_name}.json')
-    pipeline.save_results_to_json(filename=results_filename)
+    # Save the results - filename is now generated using run_id by default
+    pipeline.save_results_to_json() # No need to pass filename
 
-    print(f"\n--- Experiment {experiment_name} completed successfully. ---")
+    results_filename = os.path.join('model_output', f'model_comparison_results_{pipeline.run_id}.json') # Construct expected filename
+    print(f"\n--- Experiment {pipeline.run_id} completed successfully. ---")
     print(f"Results saved to {results_filename}")
-    print(f"To visualize these results, run: python visualize_results.py {results_filename}")
+    print(f"To visualize these results, run: python software-group/data-working/system_framework/visualize_results.py {results_filename}")
+    print(f"To run inference with these results, run: python software-group/data-working/system_framework/inference_revision.py --models <YourModels> --data {data_path} --results_path {results_filename}")
+
 
 if __name__ == "__main__":
     main() 
